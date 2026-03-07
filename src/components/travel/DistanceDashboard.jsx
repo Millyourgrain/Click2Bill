@@ -5,7 +5,7 @@ import AutocompleteInput from './AutocompleteInput';
 import VehicleDetails from './VehicleDetails';
 import RouteMap from './RouteMap';
 import { searchPlaces, getRoute } from '../../services/geoapify';
-import { calculateWearTearCost } from '../../Utils/wearTearCalculator';
+import { calculateWearTearCost } from '@utils/wearTearCalculator';
 function DistanceDashboard({ onAddToInvoice }) {
   const navigate = useNavigate();
   const [origin, setOrigin] = useState('');

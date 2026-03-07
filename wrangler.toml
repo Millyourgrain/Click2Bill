@@ -2,5 +2,6 @@
 name = "digital-invoice"
 compatibility_date = "2024-01-01"
 
-# Where Vite outputs the built files (npm run build)
-pages_build_output_dir = "./dist"
+# Directory of static assets to deploy (Vite outputs to dist)
+[assets]
+directory = "./dist"

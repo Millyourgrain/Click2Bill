@@ -1,0 +1,6 @@
+# Cloudflare Pages - Static site configuration
+name = "digital-invoice"
+compatibility_date = "2024-01-01"
+
+# Where Vite outputs the built files (npm run build)
+pages_build_output_dir = "./dist"

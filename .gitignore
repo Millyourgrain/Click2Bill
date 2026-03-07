@@ -26,4 +26,3 @@ Editor directories and files
 Environment variables
 .env
 .env.local
-.env.production

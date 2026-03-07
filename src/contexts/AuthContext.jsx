@@ -18,6 +18,29 @@ export const AuthProvider = ({ children }) => {
   const [userRole, setUserRole] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  const refreshUserData = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+    try {
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        setCurrentUser({
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName,
+          ...userData
+        });
+        setUserRole(userData.role || 'worker');
+      } else {
+        setCurrentUser(user);
+        setUserRole('worker');
+      }
+    } catch (err) {
+      console.error('Refresh user data error:', err);
+    }
+  };
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -32,15 +55,15 @@ export const AuthProvider = ({ children }) => {
               displayName: user.displayName,
               ...userData
             });
-            setUserRole(userData.role || 'user');
+            setUserRole(userData.role || 'worker');
           } else {
             setCurrentUser(user);
-            setUserRole('user');
+            setUserRole('worker');
           }
         } catch (error) {
           console.error('Error fetching user data:', error);
           setCurrentUser(user);
-          setUserRole('user');
+          setUserRole('worker');
         }
       } else {
         setCurrentUser(null);
@@ -56,8 +79,11 @@ export const AuthProvider = ({ children }) => {
     currentUser,
     userRole,
     loading,
+    refreshUserData,
     isAuthenticated: !!currentUser,
-    isAdmin: userRole === 'admin'
+    isAdmin: userRole === 'admin',
+    isWorker: userRole === 'worker' || userRole === 'user' || userRole === 'admin',
+    isCustomer: userRole === 'customer',
   };
 
   return (

@@ -28,8 +28,8 @@ function Login() {
     const result = await loginUser(formData.email, formData.password);
 
     if (result.success) {
-      // Redirect to dashboard
-      navigate('/dashboard');
+      const role = result.user?.role || 'worker';
+      navigate(role === 'customer' ? '/customer-dashboard' : '/dashboard');
     } else {
       setError(result.error);
       setLoading(false);
@@ -76,7 +76,7 @@ function Login() {
             Welcome Back
           </h1>
           <p style={{ color: '#666', fontSize: '15px' }}>
-            Sign in to your Business Management Platform
+            Sign in with Email and password
           </p>
         </div>
 
@@ -232,18 +232,8 @@ function Login() {
           borderTop: '1px solid #e0e0e0',
           textAlign: 'center'
         }}>
-          <p style={{ fontSize: '14px', color: '#666', marginBottom: '12px' }}>
-            Don't have an account?{' '}
-            <Link 
-              to="/register" 
-              style={{ 
-                color: '#667eea', 
-                textDecoration: 'none', 
-                fontWeight: '600' 
-              }}
-            >
-              Sign up for free
-            </Link>
+          <p style={{ fontSize: '14px', color: '#666', marginBottom: '4px' }}>
+            Don't have an account? <Link to="/" style={{ color: '#667eea', textDecoration: 'none', fontWeight: '600' }}>Choose your role and sign up</Link>
           </p>
         </div>
       </div>

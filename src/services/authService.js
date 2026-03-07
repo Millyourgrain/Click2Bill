@@ -33,7 +33,7 @@ export const registerUser = async (userData) => {
       fullName: fullName,
       phone: phone || '',
       companyName: companyName,
-      role: 'user', // Can be 'user' or 'admin'
+      role: 'worker', // worker | customer | admin
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       isActive: true
@@ -69,37 +69,56 @@ export const registerUser = async (userData) => {
 };
 
 /**
- * Login existing user
+ * Register Customer/Payor (invited by worker or self-signup)
+ */
+export const registerCustomer = async (userData) => {
+  try {
+    const { email, password, fullName, phone } = userData;
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    const user = userCredential.user;
+    await updateProfile(user, { displayName: fullName });
+    await setDoc(doc(db, 'users', user.uid), {
+      uid: user.uid,
+      email,
+      fullName: fullName || '',
+      phone: phone || '',
+      role: 'customer',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      isActive: true,
+    });
+    return { success: true, user: { uid: user.uid, email: user.email, displayName: user.displayName, role: 'customer' } };
+  } catch (error) {
+    console.error('Registration error:', error);
+    let errorMessage = 'Registration failed. Please try again.';
+    if (error.code === 'auth/email-already-in-use') errorMessage = 'This email is already registered. Please login instead.';
+    else if (error.code === 'auth/invalid-email') errorMessage = 'Invalid email address.';
+    else if (error.code === 'auth/weak-password') errorMessage = 'Password should be at least 6 characters.';
+    return { success: false, error: errorMessage };
+  }
+};
+
+/**
+ * Login existing user (worker or customer)
  */
 export const loginUser = async (email, password) => {
   try {
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
-    
-    // Get user data from Firestore
     const userDoc = await getDoc(doc(db, 'users', user.uid));
-    
-    if (!userDoc.exists()) {
-      throw new Error('User data not found');
-    }
-    
+    if (!userDoc.exists()) throw new Error('User data not found');
     const userData = userDoc.data();
-    
-    // Check if account is active
     if (!userData.isActive) {
       await signOut(auth);
-      return {
-        success: false,
-        error: 'Your account has been deactivated. Please contact support.'
-      };
+      return { success: false, error: 'Your account has been deactivated. Please contact support.' };
     }
-    
     return {
       success: true,
       user: {
         uid: user.uid,
         email: user.email,
         displayName: user.displayName,
+        role: userData.role || 'worker',
         ...userData
       }
     };

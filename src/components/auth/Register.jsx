@@ -92,7 +92,7 @@ function Register() {
             Create Your Account
           </h1>
           <p style={{ color: '#666', fontSize: '15px' }}>
-            Join the Business Management Platform
+            Sign up for the e-invoicing platform (independent PSW / Service worker)
           </p>
         </div>
 

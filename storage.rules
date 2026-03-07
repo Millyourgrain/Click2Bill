@@ -1,0 +1,27 @@
+// =====================================================================
+// FIREBASE STORAGE RULES FOR E-INVOICING PLATFORM
+// =====================================================================
+//
+// HOW TO APPLY:
+// Firebase Console → Storage → Rules → replace and Publish
+//
+// Path structure:
+//   logos/{userId}/           - Company/worker logos
+//   documents/{userId}/       - Void cheque, insurance, engagement agreements, etc.
+//
+// =====================================================================
+
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Worker logos and documents (company profile uploads)
+    match /logos/{userId}/{allPaths=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    match /documents/{userId}/{allPaths=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}

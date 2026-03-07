@@ -1,0 +1,116 @@
+// =====================================================================
+// FIREBASE FIRESTORE RULES - E-Invoicing Platform (PSW / Service Worker)
+// =====================================================================
+//
+// HOW TO APPLY:
+// Firebase Console → Firestore Database → Rules → replace all → Publish
+//
+// Collections: users, companies, customers, visits, invoices, travelRecords,
+//              customerProfiles, notifications, serviceProviders, serviceAppointments
+//
+// =====================================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // -------------------------------------------------------------------
+    // USERS - Auth user profiles (role, email, etc.)
+    // Used by: authService, notificationService (getUserIdByEmail)
+    // -------------------------------------------------------------------
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update, delete: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // -------------------------------------------------------------------
+    // COMPANIES - Worker/agency profile (one doc per user, docId = userId)
+    // Used by: companyService
+    // -------------------------------------------------------------------
+    match /companies/{companyId} {
+      allow read, update, delete: if request.auth != null && companyId == request.auth.uid;
+      allow create: if request.auth != null && companyId == request.auth.uid && request.resource.data.userId == request.auth.uid;
+    }
+
+    // -------------------------------------------------------------------
+    // CUSTOMERS - Worker's customer/patient records
+    // Used by: customerService
+    // -------------------------------------------------------------------
+    match /customers/{docId} {
+      allow read, update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+    }
+
+    // -------------------------------------------------------------------
+    // VISITS - Service scheduling (check-in/check-out)
+    // Used by: visitService
+    // -------------------------------------------------------------------
+    match /visits/{docId} {
+      allow read, update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+    }
+
+    // -------------------------------------------------------------------
+    // INVOICES - Worker creates; Customer/Payor can read & update (accept/contest/pay)
+    // Used by: invoiceService
+    // Worker: full CRUD on own invoices
+    // Customer: read & update when customerEmail or payorEmail matches their email
+    // -------------------------------------------------------------------
+    match /invoices/{docId} {
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow read, update: if request.auth != null && (
+        resource.data.userId == request.auth.uid
+        || resource.data.customerEmail == request.auth.token.email
+        || resource.data.payorEmail == request.auth.token.email
+      );
+      allow delete: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+
+    // -------------------------------------------------------------------
+    // TRAVEL RECORDS - Worker's business travel records
+    // Used by: travelRecordService
+    // -------------------------------------------------------------------
+    match /travelRecords/{docId} {
+      allow read, update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+    }
+
+    // -------------------------------------------------------------------
+    // CUSTOMER PROFILES - Customer/Payor platform profile (docId = userId)
+    // Used by: customerProfileService
+    // -------------------------------------------------------------------
+    match /customerProfiles/{profileId} {
+      allow read, update, delete: if request.auth != null && profileId == request.auth.uid;
+      allow create: if request.auth != null && profileId == request.auth.uid && request.resource.data.userId == request.auth.uid;
+    }
+
+    // -------------------------------------------------------------------
+    // NOTIFICATIONS - User notifications (check-in, invoice viewed, etc.)
+    // Used by: notificationService
+    // Workers create for customers; users read their own
+    // -------------------------------------------------------------------
+    match /notifications/{docId} {
+      allow create: if request.auth != null;
+      allow read, update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+
+    // -------------------------------------------------------------------
+    // SERVICE PROVIDERS - Customer's list of providers (PSW, RN, etc.)
+    // Used by: serviceProviderService (customer only)
+    // -------------------------------------------------------------------
+    match /serviceProviders/{docId} {
+      allow create: if request.auth != null && request.resource.data.customerUserId == request.auth.uid;
+      allow read, update, delete: if request.auth != null && resource.data.customerUserId == request.auth.uid;
+    }
+
+    // -------------------------------------------------------------------
+    // SERVICE APPOINTMENTS - Customer's appointments with providers
+    // Used by: serviceAppointmentService (customer only)
+    // -------------------------------------------------------------------
+    match /serviceAppointments/{docId} {
+      allow create: if request.auth != null && request.resource.data.customerUserId == request.auth.uid;
+      allow read, update, delete: if request.auth != null && resource.data.customerUserId == request.auth.uid;
+    }
+  }
+}

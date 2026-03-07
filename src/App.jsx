@@ -1,21 +1,36 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext.jsx';
 import ProtectedRoute from './components/common/ProtectedRoute';
 
-// Auth Components
+// Auth
 import Login from './components/auth/Login';
 import Register from './components/auth/Register';
+import RegisterCustomer from './components/auth/RegisterCustomer';
 
-// Company Components
+// Company / Profile
 import CompanySetup from './components/company/CompanySetup';
+
+// Customers
+import CustomerList from './components/customer/CustomerList';
+import CustomerProfile from './components/customer/CustomerProfile';
+
+// Schedule
+import ServiceSchedule from './components/schedule/ServiceSchedule';
 
 // Dashboard
 import Dashboard from './components/dashboard/Dashboard';
 
-// Existing Components
+// Invoice & Travel
 import InvoiceGenerator from './components/invoice/InvoiceGenerator';
 import DistanceDashboard from './components/travel/DistanceDashboard';
+
+// Customer (payor) dashboard & invoice view
+import CustomerDashboard from './components/customer/CustomerDashboard';
+import CustomerProfileSetup from './components/customer/CustomerProfileSetup';
+import CustomerInvoiceView from './components/customer/CustomerInvoiceView';
+import HomeRedirect from './components/common/HomeRedirect';
+import LandingOrRedirect from './components/common/LandingOrRedirect';
 
 import './App.css';
 
@@ -26,56 +41,50 @@ function App() {
     setTravelCostItem(item);
   };
 
+  const handleTravelCostConsumed = useCallback(() => setTravelCostItem(null), []);
+
   return (
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          {/* Public Routes */}
+          {/* Public */}
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/register-customer" element={<RegisterCustomer />} />
 
-          {/* Protected Routes */}
+          {/* Worker-only routes */}
           <Route
             path="/dashboard"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute allowedRoles={['worker', 'user', 'admin']}>
                 <Dashboard />
               </ProtectedRoute>
             }
           />
-
           <Route
             path="/setup-company"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute allowedRoles={['worker', 'user', 'admin']}>
                 <CompanySetup />
               </ProtectedRoute>
             }
           />
 
-          <Route
-            path="/invoice"
-            element={
-              <ProtectedRoute>
-                <InvoiceGenerator travelCostItem={travelCostItem} />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/invoice" element={<ProtectedRoute allowedRoles={['worker', 'user', 'admin']}><InvoiceGenerator travelCostItem={travelCostItem} onTravelCostConsumed={handleTravelCostConsumed} /></ProtectedRoute>} />
+          <Route path="/travel" element={<ProtectedRoute allowedRoles={['worker', 'user', 'admin']}><DistanceDashboard onAddToInvoice={handleAddToInvoice} /></ProtectedRoute>} />
 
-          <Route
-            path="/travel"
-            element={
-              <ProtectedRoute>
-                <DistanceDashboard onAddToInvoice={handleAddToInvoice} />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/customers" element={<ProtectedRoute allowedRoles={['worker', 'user', 'admin']}><CustomerList /></ProtectedRoute>} />
+          <Route path="/customers/new" element={<ProtectedRoute allowedRoles={['worker', 'user', 'admin']}><CustomerProfile /></ProtectedRoute>} />
+          <Route path="/customers/:customerId" element={<ProtectedRoute allowedRoles={['worker', 'user', 'admin']}><CustomerProfile /></ProtectedRoute>} />
+          <Route path="/schedule" element={<ProtectedRoute allowedRoles={['worker', 'user', 'admin']}><ServiceSchedule /></ProtectedRoute>} />
 
-          {/* Default Route - redirect to dashboard */}
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          {/* Customer/Payor-only routes */}
+          <Route path="/customer-dashboard" element={<ProtectedRoute allowedRoles={['customer']}><CustomerDashboard /></ProtectedRoute>} />
+          <Route path="/customer-profile-setup" element={<ProtectedRoute allowedRoles={['customer']}><CustomerProfileSetup /></ProtectedRoute>} />
+          <Route path="/customer/invoice/:invoiceId" element={<ProtectedRoute allowedRoles={['customer']}><CustomerInvoiceView /></ProtectedRoute>} />
 
-          {/* 404 - redirect to dashboard */}
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/" element={<LandingOrRedirect />} />
+          <Route path="*" element={<HomeRedirect />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

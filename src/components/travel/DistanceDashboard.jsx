@@ -6,7 +6,6 @@ import VehicleDetails from './VehicleDetails';
 import RouteMap from './RouteMap';
 import { searchPlaces, getRoute } from '../../services/geoapify';
 import { calculateWearTearCost } from '../../Utils/wearTearCalculator';
-
 function DistanceDashboard({ onAddToInvoice }) {
   const navigate = useNavigate();
   const [origin, setOrigin] = useState('');
@@ -244,21 +243,36 @@ function DistanceDashboard({ onAddToInvoice }) {
   };
 
   const handleAddToInvoice = () => {
-    if (result && result.totalCost) {
-      const travelItem = {
-        id: `travel-${Date.now()}`,
-        description: `Travel: ${result.origin.formatted} to ${result.destination.formatted} (Round trip - ${(result.distanceKm * 2).toFixed(2)} km)`,
-        quantity: 1,
-        rate: parseFloat(result.totalCost),
-        amount: parseFloat(result.totalCost),
-        date: result.travelDate,
-        isTaxExempt: true,
-        type: 'travel'
-      };
-      
-      onAddToInvoice(travelItem);
-      navigate('/invoice');
+    if (!result || result.distanceKm == null) return;
+
+    const totalCost = result.totalCost != null ? Number(result.totalCost) : (result.distanceKm * 2 * (result.wearTearRate || 0.15));
+    const roundTripKm = result.distanceKm * 2;
+    const orig = typeof result.origin === 'string' ? result.origin : (result.origin?.formatted || 'Origin');
+    const dest = typeof result.destination === 'string' ? result.destination : (result.destination?.formatted || 'Destination');
+    const description = `Travel: ${orig} to ${dest} (Round trip - ${roundTripKm.toFixed(2)} km)`;
+
+    const travelItem = {
+      id: `travel-${Date.now()}`,
+      description,
+      quantity: 1,
+      rate: totalCost,
+      amount: totalCost,
+      date: result.travelDate || new Date().toISOString().split('T')[0],
+      isTaxExempt: true,
+      type: 'travel',
+      distanceKm: result.distanceKm,
+      roundTripKm,
+      origin: orig,
+      destination: dest,
+    };
+
+    try {
+      sessionStorage.setItem('pendingTravelItem', JSON.stringify(travelItem));
+    } catch (e) {
+      console.error('SessionStorage failed:', e);
     }
+
+    navigate('/invoice');
   };
 
   const today = new Date().toISOString().split('T')[0];

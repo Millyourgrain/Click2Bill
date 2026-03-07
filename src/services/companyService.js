@@ -3,152 +3,188 @@ import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage
 import { db, storage, auth } from '../firebase/config';
 
 /**
- * Save or update company information
+ * Save or update worker/company profile (full PSW profile)
  */
 export const saveCompanyInfo = async (companyData) => {
   try {
     const user = auth.currentUser;
-    
-    if (!user) {
-      return { success: false, error: 'User not authenticated' };
-    }
-    
+    if (!user) return { success: false, error: 'User not authenticated' };
+
     const companyRef = doc(db, 'companies', user.uid);
-    
-    // Check if company already exists
     const companyDoc = await getDoc(companyRef);
-    
+
     const dataToSave = {
       userId: user.uid,
-      companyName: companyData.companyName,
+      // Basic
+      companyName: companyData.companyName || '',
+      legalBusinessName: companyData.legalBusinessName || companyData.companyName || '',
+      operationalNameDba: companyData.operationalNameDba || '',
       companyAddress: companyData.companyAddress || '',
       email: companyData.email || user.email,
       phone: companyData.phone || '',
-      gstNumber: companyData.gstNumber || '',
       logoUrl: companyData.logoUrl || '',
-      updatedAt: new Date().toISOString()
+      // Business structure (when working independently)
+      workingIndependently: companyData.workingIndependently ?? null,
+      businessStructure: companyData.businessStructure || '',
+      articlesOfIncorporationUrl: companyData.articlesOfIncorporationUrl || '',
+      // Personal
+      name: companyData.name || '',
+      dateOfBirth: companyData.dateOfBirth || '',
+      provincialFederalId: companyData.provincialFederalId || '',
+      roleTypeOfService: companyData.roleTypeOfService || '',
+      roleTypeOther: companyData.roleTypeOther || '',
+      // Tax & payment
+      gstNumber: companyData.gstNumber || '',
+      bankingDetailsUrl: companyData.bankingDetailsUrl || '',
+      // Insurance
+      commercialLiabilityInsurance: companyData.commercialLiabilityInsurance ?? null,
+      commercialLiabilityPolicyUrl: companyData.commercialLiabilityPolicyUrl || '',
+      commercialLiabilityInterested: companyData.commercialLiabilityInterested ?? null,
+      generalLiabilityInsurance: companyData.generalLiabilityInsurance ?? null,
+      generalLiabilityPolicyUrl: companyData.generalLiabilityPolicyUrl || '',
+      generalLiabilityInterested: companyData.generalLiabilityInterested ?? null,
+      insuranceAcknowledgement: companyData.insuranceAcknowledgement || false,
+      // WSIB
+      wsibCoverage: companyData.wsibCoverage || '',
+      // Travel
+      quoteTravelCostOnInvoice: companyData.quoteTravelCostOnInvoice ?? null,
+      vehicleDetails: companyData.vehicleDetails || null,
+      updatedAt: new Date().toISOString(),
     };
-    
+
     if (companyDoc.exists()) {
-      // Update existing company
       await updateDoc(companyRef, dataToSave);
     } else {
-      // Create new company
-      await setDoc(companyRef, {
-        ...dataToSave,
-        createdAt: new Date().toISOString()
-      });
+      await setDoc(companyRef, { ...dataToSave, createdAt: new Date().toISOString() });
     }
-    
-    return {
-      success: true,
-      message: 'Company information saved successfully',
-      data: dataToSave
-    };
+
+    return { success: true, message: 'Profile saved successfully', data: dataToSave };
   } catch (error) {
     console.error('Save company error:', error);
-    return {
-      success: false,
-      error: 'Failed to save company information'
-    };
+    return { success: false, error: 'Failed to save profile' };
   }
 };
 
 /**
- * Get company information for current user
+ * Get company/worker profile for current user
  */
 export const getCompanyInfo = async () => {
   try {
     const user = auth.currentUser;
-    
-    if (!user) {
-      return { success: false, error: 'User not authenticated' };
-    }
-    
+    if (!user) return { success: false, error: 'User not authenticated' };
+
     const companyRef = doc(db, 'companies', user.uid);
     const companyDoc = await getDoc(companyRef);
-    
+
     if (!companyDoc.exists()) {
-      return {
-        success: true,
-        data: null,
-        message: 'No company information found'
-      };
+      return { success: true, data: null, message: 'No profile found' };
     }
-    
-    return {
-      success: true,
-      data: companyDoc.data()
-    };
+    return { success: true, data: companyDoc.data() };
   } catch (error) {
     console.error('Get company error:', error);
-    return {
-      success: false,
-      error: 'Failed to retrieve company information'
-    };
+    return { success: false, error: 'Failed to retrieve profile' };
   }
+};
+
+/**
+ * Upload file to storage (logo, void cheque, insurance, etc.)
+ */
+const uploadFile = async (file, folder, filenamePrefix) => {
+  const user = auth.currentUser;
+  if (!user) return { success: false, error: 'User not authenticated' };
+
+  const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
+  if (!validTypes.includes(file.type)) {
+    return { success: false, error: 'Invalid file type. Use image or PDF.' };
+  }
+  const maxSize = 10 * 1024 * 1024; // 10MB
+  if (file.size > maxSize) return { success: false, error: 'File too large (max 10MB)' };
+
+  const filename = `${filenamePrefix}_${Date.now()}_${file.name}`;
+  const storageRef = ref(storage, `${folder}/${user.uid}/${filename}`);
+  await uploadBytes(storageRef, file);
+  const downloadURL = await getDownloadURL(storageRef);
+  return { success: true, url: downloadURL, path: `${folder}/${user.uid}/${filename}` };
 };
 
 /**
  * Upload company logo
  */
 export const uploadCompanyLogo = async (file) => {
-  try {
-    const user = auth.currentUser;
-    
-    if (!user) {
-      return { success: false, error: 'User not authenticated' };
-    }
-    
-    // Validate file type
-    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
-    if (!validTypes.includes(file.type)) {
-      return {
-        success: false,
-        error: 'Invalid file type. Please upload an image (JPG, PNG, GIF, or WebP)'
-      };
-    }
-    
-    // Validate file size (max 5MB)
-    const maxSize = 5 * 1024 * 1024; // 5MB
-    if (file.size > maxSize) {
-      return {
-        success: false,
-        error: 'File too large. Maximum size is 5MB'
-      };
-    }
-    
-    // Create unique filename
-    const timestamp = Date.now();
-    const filename = `logo_${timestamp}_${file.name}`;
-    const storageRef = ref(storage, `logos/${user.uid}/${filename}`);
-    
-    // Upload file
-    await uploadBytes(storageRef, file);
-    
-    // Get download URL
-    const downloadURL = await getDownloadURL(storageRef);
-    
-    // Update company info with logo URL
-    const companyRef = doc(db, 'companies', user.uid);
-    await updateDoc(companyRef, {
-      logoUrl: downloadURL,
-      logoPath: `logos/${user.uid}/${filename}`,
-      updatedAt: new Date().toISOString()
-    });
-    
-    return {
-      success: true,
-      url: downloadURL,
-      message: 'Logo uploaded successfully'
-    };
-  } catch (error) {
-    console.error('Upload logo error:', error);
-    return {
-      success: false,
-      error: 'Failed to upload logo'
-    };
-  }
+  const result = await uploadFile(file, 'logos', 'logo');
+  if (!result.success) return result;
+  const user = auth.currentUser;
+  const companyRef = doc(db, 'companies', user.uid);
+  await updateDoc(companyRef, {
+    logoUrl: result.url,
+    logoPath: result.path,
+    updatedAt: new Date().toISOString(),
+  });
+  return { success: true, url: result.url, message: 'Logo uploaded successfully' };
+};
+
+/**
+ * Upload articles of incorporation
+ */
+export const uploadArticlesOfIncorporation = async (file) => {
+  const result = await uploadFile(file, 'documents', 'articles');
+  if (!result.success) return result;
+  const user = auth.currentUser;
+  const companyRef = doc(db, 'companies', user.uid);
+  await updateDoc(companyRef, {
+    articlesOfIncorporationUrl: result.url,
+    articlesOfIncorporationPath: result.path,
+    updatedAt: new Date().toISOString(),
+  });
+  return { success: true, url: result.url, message: 'Document uploaded' };
+};
+
+/**
+ * Upload void cheque / direct deposit form
+ */
+export const uploadBankingDetails = async (file) => {
+  const result = await uploadFile(file, 'documents', 'banking');
+  if (!result.success) return result;
+  const user = auth.currentUser;
+  const companyRef = doc(db, 'companies', user.uid);
+  await updateDoc(companyRef, {
+    bankingDetailsUrl: result.url,
+    bankingDetailsPath: result.path,
+    updatedAt: new Date().toISOString(),
+  });
+  return { success: true, url: result.url, message: 'Banking details uploaded' };
+};
+
+/**
+ * Upload commercial liability insurance policy
+ */
+export const uploadCommercialLiabilityPolicy = async (file) => {
+  const result = await uploadFile(file, 'documents', 'commercial_liability');
+  if (!result.success) return result;
+  const user = auth.currentUser;
+  const companyRef = doc(db, 'companies', user.uid);
+  await updateDoc(companyRef, {
+    commercialLiabilityPolicyUrl: result.url,
+    commercialLiabilityPolicyPath: result.path,
+    updatedAt: new Date().toISOString(),
+  });
+  return { success: true, url: result.url, message: 'Policy uploaded' };
+};
+
+/**
+ * Upload general liability insurance policy
+ */
+export const uploadGeneralLiabilityPolicy = async (file) => {
+  const result = await uploadFile(file, 'documents', 'general_liability');
+  if (!result.success) return result;
+  const user = auth.currentUser;
+  const companyRef = doc(db, 'companies', user.uid);
+  await updateDoc(companyRef, {
+    generalLiabilityPolicyUrl: result.url,
+    generalLiabilityPolicyPath: result.path,
+    updatedAt: new Date().toISOString(),
+  });
+  return { success: true, url: result.url, message: 'Policy uploaded' };
 };
 
 /**
@@ -157,44 +193,19 @@ export const uploadCompanyLogo = async (file) => {
 export const deleteCompanyLogo = async () => {
   try {
     const user = auth.currentUser;
-    
-    if (!user) {
-      return { success: false, error: 'User not authenticated' };
-    }
-    
-    // Get current company info
+    if (!user) return { success: false, error: 'User not authenticated' };
     const companyRef = doc(db, 'companies', user.uid);
     const companyDoc = await getDoc(companyRef);
-    
     if (!companyDoc.exists() || !companyDoc.data().logoPath) {
-      return {
-        success: false,
-        error: 'No logo to delete'
-      };
+      return { success: false, error: 'No logo to delete' };
     }
-    
-    // Delete file from storage
-    const logoPath = companyDoc.data().logoPath;
-    const storageRef = ref(storage, logoPath);
+    const storageRef = ref(storage, companyDoc.data().logoPath);
     await deleteObject(storageRef);
-    
-    // Remove logo URL from company info
-    await updateDoc(companyRef, {
-      logoUrl: '',
-      logoPath: '',
-      updatedAt: new Date().toISOString()
-    });
-    
-    return {
-      success: true,
-      message: 'Logo deleted successfully'
-    };
+    await updateDoc(companyRef, { logoUrl: '', logoPath: '', updatedAt: new Date().toISOString() });
+    return { success: true, message: 'Logo deleted' };
   } catch (error) {
     console.error('Delete logo error:', error);
-    return {
-      success: false,
-      error: 'Failed to delete logo'
-    };
+    return { success: false, error: 'Failed to delete logo' };
   }
 };
 
@@ -204,40 +215,16 @@ export const deleteCompanyLogo = async () => {
 export const getAllCompanies = async () => {
   try {
     const user = auth.currentUser;
-    
-    if (!user) {
-      return { success: false, error: 'User not authenticated' };
-    }
-    
-    // Check if user is admin
+    if (!user) return { success: false, error: 'User not authenticated' };
     const userDoc = await getDoc(doc(db, 'users', user.uid));
     if (!userDoc.exists() || userDoc.data().role !== 'admin') {
-      return {
-        success: false,
-        error: 'Unauthorized. Admin access required.'
-      };
+      return { success: false, error: 'Unauthorized. Admin access required.' };
     }
-    
-    const companiesRef = collection(db, 'companies');
-    const querySnapshot = await getDocs(companiesRef);
-    
-    const companies = [];
-    querySnapshot.forEach((doc) => {
-      companies.push({
-        id: doc.id,
-        ...doc.data()
-      });
-    });
-    
-    return {
-      success: true,
-      data: companies
-    };
+    const querySnapshot = await getDocs(collection(db, 'companies'));
+    const companies = querySnapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+    return { success: true, data: companies };
   } catch (error) {
     console.error('Get all companies error:', error);
-    return {
-      success: false,
-      error: 'Failed to retrieve companies'
-    };
+    return { success: false, error: 'Failed to retrieve companies' };
   }
 };

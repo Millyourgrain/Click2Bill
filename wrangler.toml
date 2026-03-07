@@ -1,5 +1,5 @@
 # Cloudflare Pages - Static site configuration
-name = "digital-invoice"
+name = "clicktobill"
 compatibility_date = "2024-01-01"
 
 # Directory of static assets to deploy (Vite outputs to dist)

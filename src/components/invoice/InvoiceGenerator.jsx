@@ -7,6 +7,7 @@ import { getCustomer, getCustomers } from '../../services/customerService';
 import { getVisit, getVisitHours, getVisitsHoursInRange } from '../../services/visitService';
 import { saveInvoice } from '../../services/invoiceService';
 import { getTravelRecords, addTravelRecord } from '../../services/travelRecordService';
+import { sendEmail } from '../../services/emailService';
 
 const PENDING_TRAVEL_KEY = 'pendingTravelItem';
 const DRAFT_BEFORE_TRAVEL_KEY = 'invoice-draft-before-travel';
@@ -37,6 +38,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
   const [reminderEnabled, setReminderEnabled] = useState(false);
   const [reminderFrequency, setReminderFrequency] = useState('15_before_due');
   const [isSaving, setIsSaving] = useState(false);
+  const [sendingEmail, setSendingEmail] = useState(false);
   const [savedInvoiceId, setSavedInvoiceId] = useState(null);
 
   const [invoice, setInvoice] = useState({
@@ -556,9 +558,9 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
   const handleDeliveryChoice = async (method) => {
     setDeliveryMethod(method);
     const saved = await handleSaveInvoice('sent', method);
-    
+
     if (saved && method === 'email') {
-      sendInvoice();
+      await sendInvoice();
     }
   };
 
@@ -566,10 +568,20 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
     window.print();
   };
 
-  const sendInvoice = () => {
+  const sendInvoice = async () => {
+    const emailTo = invoice.payorEmail || invoice.customerEmail;
+    if (!emailTo) {
+      alert('No customer or payor email on the invoice.');
+      return;
+    }
+    setSendingEmail(true);
     const subject = `Invoice ${invoice.invoiceNumber} from ${companyInfo?.companyName || 'Your Company'}`;
-    const body = `Dear ${invoice.customerName},\n\nPlease find attached your invoice.\n\nInvoice Number: ${invoice.invoiceNumber}\nTotal Amount: $${calculateTotal().toFixed(2)}\n\nThank you for your business!\n\n${companyInfo?.companyName || 'Your Company'}`;
-    window.location.href = `mailto:${invoice.customerEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    const invoiceLink = savedInvoiceId ? `${window.location.origin}/customer/invoice/${savedInvoiceId}` : '';
+    const text = `Dear ${invoice.customerName},\n\nPlease find your invoice below.\n\nInvoice Number: ${invoice.invoiceNumber}\nTotal Amount: $${calculateTotal().toFixed(2)}\n\n${invoiceLink ? `View your invoice: ${invoiceLink}\n\n` : ''}Thank you for your business!\n\n${companyInfo?.companyName || 'Your Company'}`;
+    const res = await sendEmail({ to: emailTo, subject, text });
+    setSendingEmail(false);
+    if (res.success) alert('Invoice sent successfully!');
+    else alert(res.error || 'Failed to send email.');
   };
 
   const currentTemplate = headerTemplates[headerTemplate];

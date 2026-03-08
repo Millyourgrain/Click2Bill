@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Calendar, Clock, LogIn, LogOut, Plus, User, MapPin, LayoutDashboard } from 'lucide-react';
 import { getCustomers, getCustomer } from '../../services/customerService';
 import { getVisits, createVisit, checkIn, checkOut, updateVisitCheckTimes, getVisitHours, getVisitDays } from '../../services/visitService';
+import { sendEmail } from '../../services/emailService';
 
 function ServiceSchedule() {
   const navigate = useNavigate();
@@ -78,6 +79,15 @@ function ServiceSchedule() {
       setServiceDate('');
       setError('');
       loadVisits();
+      // Send notification emails to customer and payor
+      const data = result.data;
+      const base = window.location.origin;
+      const subject = 'Service visit scheduled';
+      const text = `A service visit has been scheduled for ${data.serviceDate || 'your service date'}.\n\nCustomer: ${data.customerName || 'N/A'}\nAddress: ${data.serviceAddress || 'N/A'}\n\nLog in to view your schedule: ${base}`;
+      const emails = [...new Set([data.customerEmail, data.payorEmail].filter(Boolean))];
+      for (const email of emails) {
+        sendEmail({ to: email, subject, text }).catch((e) => console.warn('Visit notification email failed:', e));
+      }
     } else {
       setError(result.error || 'Failed to schedule visit. Please try again.');
     }

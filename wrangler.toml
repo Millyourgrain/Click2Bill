@@ -1,7 +1,12 @@
-# Cloudflare Pages - Static site configuration
+# Cloudflare Worker with static assets
 name = "clicktobill"
 compatibility_date = "2024-01-01"
+main = "worker.js"
 
 # Directory of static assets to deploy (Vite outputs to dist)
 [assets]
 directory = "./dist"
+
+# Add these in Cloudflare Dashboard → Workers & Pages → clicktobill → Settings → Variables:
+# - FIREBASE_API_KEY (same as VITE_FIREBASE_API_KEY, for token verification)
+# - RESEND_API_KEY (secret): npx wrangler secret put RESEND_API_KEY

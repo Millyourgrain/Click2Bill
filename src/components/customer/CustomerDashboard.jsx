@@ -28,11 +28,12 @@ import {
   updateServiceAppointment,
   deleteServiceAppointment,
 } from '../../services/serviceAppointmentService';
+import { sendEmail } from '../../services/emailService';
 
 /** Customer / Payor dashboard only. Workers are redirected to worker dashboard. */
 function CustomerDashboard() {
   const navigate = useNavigate();
-  const { userRole } = useAuth();
+  const { userRole, currentUser } = useAuth();
   const [activeTab, setActiveTab] = useState('providers');
   const [invoices, setInvoices] = useState([]);
   const [providers, setProviders] = useState([]);
@@ -123,6 +124,19 @@ function CustomerDashboard() {
     if (res.success) {
       setShowAddAppointment(false);
       load();
+      // Send confirmation emails to customer and provider
+      const base = window.location.origin;
+      const subject = 'Appointment added';
+      const apptDate = data.appointmentDate ? new Date(data.appointmentDate).toLocaleDateString() : 'TBD';
+      const customerText = `Your service appointment has been added.\n\nDate: ${apptDate}\nProvider: ${data.providerName || 'N/A'}\nService: ${data.serviceType || 'N/A'}\n\nView your appointments: ${base}`;
+      if (currentUser?.email) {
+        sendEmail({ to: currentUser.email, subject, text: customerText }).catch((e) => console.warn('Appointment confirmation email failed:', e));
+      }
+      const provider = providers.find((p) => p.id === data.providerId);
+      if (provider?.providerEmail) {
+        const providerText = `A new appointment has been scheduled.\n\nDate: ${apptDate}\nCustomer: ${currentUser?.email || 'Customer'}\nService: ${data.serviceType || 'N/A'}\n\nView your dashboard: ${base}`;
+        sendEmail({ to: provider.providerEmail, subject: 'New appointment scheduled', text: providerText }).catch((e) => console.warn('Provider notification email failed:', e));
+      }
     } else setError(res.error);
   };
 

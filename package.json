@@ -1,12 +1,16 @@
 {
-  "name": "merged-invoice-travel-app",
+  "name": "click2bill",
   "private": true,
   "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "firebase:deploy": "firebase deploy",
+    "firebase:deploy:rules": "firebase deploy --only firestore:rules,storage",
+    "firebase:deploy:functions": "firebase deploy --only functions",
+    "functions:install": "npm install --prefix functions"
   },
   "dependencies": {
     "firebase": "^12.8.0",

@@ -12,18 +12,22 @@ const corsHeaders = {
 };
 
 async function verifyFirebaseToken(idToken, apiKey) {
-  const url = `${FIREBASE_VERIFY_URL}?key=${apiKey}`;
+  const url = `${FIREBASE_VERIFY_URL}?key=${encodeURIComponent(apiKey)}`;
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ idToken }),
   });
-  return res.ok;
+  if (res.ok) return true;
+  const errBody = await res.json().catch(() => ({}));
+  // Visible in wrangler tail / dashboard — helps debug API key restrictions vs bad token
+  console.error('Firebase accounts:lookup failed', res.status, errBody);
+  return false;
 }
 
 async function sendEmailViaResend(env, { to, subject, text, html }) {
   const body = {
-    from: env.FROM_EMAIL || 'ClickToBill <onboarding@resend.dev>',
+    from: env.FROM_EMAIL || 'Click2Bill <onboarding@resend.dev>',
     to: Array.isArray(to) ? to : [to],
     subject,
     text: text || '',
@@ -60,8 +64,8 @@ async function handleSendEmail(request, env) {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
-  if (!env.FIREBASE_API_KEY || env.FIREBASE_API_KEY === 'PASTE_YOUR_FIREBASE_API_KEY_HERE') {
-    return new Response(JSON.stringify({ success: false, error: 'FIREBASE_API_KEY not configured. Edit wrangler.toml and replace PASTE_YOUR_FIREBASE_API_KEY_HERE with your Firebase API key (same as VITE_FIREBASE_API_KEY from .env.production), then redeploy.' }), {
+  if (!env.FIREBASE_API_KEY || env.FIREBASE_API_KEY.includes('PASTE_YOUR')) {
+    return new Response(JSON.stringify({ success: false, error: 'FIREBASE_API_KEY not configured. Set [vars] FIREBASE_API_KEY in wrangler.toml to the same value as VITE_FIREBASE_API_KEY, then redeploy. For local dev, use .dev.vars (see dev.vars.example).' }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -69,7 +73,10 @@ async function handleSendEmail(request, env) {
 
   const valid = await verifyFirebaseToken(token, env.FIREBASE_API_KEY);
   if (!valid) {
-    return new Response(JSON.stringify({ success: false, error: 'Invalid or expired token. Try logging out and back in.' }), {
+    return new Response(JSON.stringify({
+      success: false,
+      error: 'Invalid or expired token, or Firebase API key rejected server-side. Confirm FIREBASE_API_KEY matches your Web app key; in Google Cloud → Credentials, avoid HTTP-referrer-only restriction for keys used by this Worker (see wrangler.toml comments). Try logging out and back in.',
+    }), {
       status: 401,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

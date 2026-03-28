@@ -1,14 +1,51 @@
-# Cloudflare Worker with static assets
-name = "clicktobill"
-compatibility_date = "2024-01-01"
-main = "worker.js"
+# Click2Bill — Cloudflare Worker + static assets (Vite dist)
+# Docs: https://developers.cloudflare.com/workers/wrangler/configuration/
+#
+# PRODUCTION CHECKLIST (local works, Cloudflare fails — verify each):
+# 1) Build with real Firebase env: copy .env.production values, run `npm run build`
+#    (VITE_* are baked into dist/; Cloudflare never injects them at request time.)
+# 2) Firebase → Authentication → Settings → Authorized domains:
+#    add your EXACT Worker URL host, e.g. `click2bill.<subdomain>.workers.dev` (from wrangler deploy output)
+#    or your custom domain. Without this, sign-in fails only on production.
+# 3) Google Cloud → Credentials → API key: allow your production origin in HTTP referrers,
+#    or use "None" for dev/testing (browser calls Identity Toolkit from your live URL).
+# 4) Cloudflare → Workers → this worker → Settings → Variables:
+#    FIREBASE_API_KEY = same string as VITE_FIREBASE_API_KEY (not PASTE_YOUR...).
+#    Secrets: RESEND_API_KEY (`npx wrangler secret put RESEND_API_KEY`).
+# 5) Redeploy: `npm run build` && `npx wrangler deploy`
+# 6) Debug: `npx wrangler tail --format pretty` while reproducing email or errors.
 
-# Directory of static assets to deploy (Vite outputs to dist)
+name = "click2bill"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+# Vite build output (run `npm run build` before `wrangler deploy`)
+# SPA: deep links (/dashboard, /login) must serve index.html — otherwise Cloudflare 404s.
 [assets]
 directory = "./dist"
+not_found_handling = "single-page-application"
 
-# Worker env vars (required for /api/send-email)
-# 1. Copy your VITE_FIREBASE_API_KEY from .env.production and paste it below (same value)
-# 2. Set RESEND_API_KEY as secret: npx wrangler secret put RESEND_API_KEY
+# ---------------------------------------------------------------------------
+# Public vars (not secret). REDEPLOY after changing [vars].
+#
+# FIREBASE_API_KEY — must be EXACTLY the same string as:
+#   VITE_FIREBASE_API_KEY in .env / .env.production (Firebase Console → Project settings → Web app)
+#
+# IMPORTANT: This Worker calls https://identitytoolkit.googleapis.com from Cloudflare
+# (server-side, not a browser). If the key in Google Cloud → Credentials has
+# "Application restrictions → HTTP referrers" ONLY, those requests can fail (INVALID_API_KEY
+# or 403). For this Worker to verify tokens, use one of:
+#   - Application restrictions: None (common for small apps), or
+#   - A separate API key with no referrer-only restriction for backend use
+#
+# RESEND_API_KEY — set as a secret (never put in this file):
+#   npx wrangler secret put RESEND_API_KEY
+#
+# Optional sender domain: set FROM_EMAIL in Cloudflare dashboard (Worker settings → Variables)
+# or uncomment [vars] FROM_EMAIL below after Resend verifies your domain.
+# ---------------------------------------------------------------------------
 [vars]
-FIREBASE_API_KEY = "AIzaSyCZ4Vx2NDD3REkrAzThMfg0X5iYbQkB5d4"
+FIREBASE_API_KEY = "PASTE_YOUR_FIREBASE_WEB_API_KEY_HERE"
+
+# Optional: override default "Click2Bill <onboarding@resend.dev>" in worker.js
+# FROM_EMAIL = "Click2Bill <billing@your-verified-domain.com>"

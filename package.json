@@ -8,9 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "firebase:deploy": "firebase deploy",
-    "firebase:deploy:rules": "firebase deploy --only firestore:rules,storage",
-    "firebase:deploy:functions": "firebase deploy --only functions",
-    "functions:install": "npm install --prefix functions"
+    "firebase:deploy:rules": "firebase deploy --only firestore:rules,storage"
   },
   "dependencies": {
     "firebase": "^12.8.0",

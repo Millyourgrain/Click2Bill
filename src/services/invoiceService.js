@@ -12,9 +12,10 @@ import {
   addDoc 
 } from 'firebase/firestore';
 import { db, auth } from '../firebase/config';
+import { getWorkerOrgContext, canActAsInvoiceMaker, canActAsInvoiceChecker } from './workerOrgContext';
 
 /**
- * Save a new invoice
+ * Save a new invoice (scoped to org billing userId = company owner uid)
  */
 export const saveInvoice = async (invoiceData) => {
   try {
@@ -23,11 +24,16 @@ export const saveInvoice = async (invoiceData) => {
     if (!user) {
       return { success: false, error: 'User not authenticated' };
     }
-    
+
+    const ctx = await getWorkerOrgContext();
+    if (!ctx) return { success: false, error: 'User not authenticated' };
+
     const invoicesRef = collection(db, 'invoices');
-    
+
     const newInvoice = {
-      userId: user.uid,
+      userId: ctx.billingUserId,
+      createdByUid: ctx.uid,
+      approvalState: invoiceData.approvalState || 'draft',
       invoiceNumber: invoiceData.invoiceNumber,
       date: invoiceData.date,
       dueDate: invoiceData.dueDate || null,
@@ -49,6 +55,7 @@ export const saveInvoice = async (invoiceData) => {
       customerName: invoiceData.customerName,
       customerEmail: invoiceData.customerEmail,
       serviceAddress: invoiceData.serviceAddress || '',
+      isPayorDifferentFromCustomer: !!invoiceData.isPayorDifferentFromCustomer,
       payorName: invoiceData.payorName || '',
       payorEmail: invoiceData.payorEmail || invoiceData.customerEmail,
 
@@ -110,8 +117,11 @@ export const getInvoices = async () => {
     const user = auth.currentUser;
     if (!user) return { success: false, error: 'User not authenticated' };
 
+    const ctx = await getWorkerOrgContext();
+    if (!ctx) return { success: false, error: 'User not authenticated' };
+
     const invoicesRef = collection(db, 'invoices');
-    const q = query(invoicesRef, where('userId', '==', user.uid));
+    const q = query(invoicesRef, where('userId', '==', ctx.billingUserId));
     const querySnapshot = await getDocs(q);
     const invoices = querySnapshot.docs
       .map((d) => ({ id: d.id, ...d.data() }))
@@ -173,15 +183,11 @@ export const getInvoice = async (invoiceId) => {
     }
     
     const invoiceData = invoiceDoc.data();
-    
-    // Verify ownership
-    if (invoiceData.userId !== user.uid) {
-      return {
-        success: false,
-        error: 'Unauthorized access'
-      };
+    const ctx = await getWorkerOrgContext();
+    if (!ctx || invoiceData.userId !== ctx.billingUserId) {
+      return { success: false, error: 'Unauthorized access' };
     }
-    
+
     return {
       success: true,
       data: {
@@ -243,19 +249,17 @@ export const updateInvoice = async (invoiceId, updates) => {
       };
     }
     
-    // Verify ownership
-    if (invoiceDoc.data().userId !== user.uid) {
-      return {
-        success: false,
-        error: 'Unauthorized access'
-      };
+    const ctx = await getWorkerOrgContext();
+    if (!ctx || invoiceDoc.data().userId !== ctx.billingUserId) {
+      return { success: false, error: 'Unauthorized access' };
     }
-    
+
     await updateDoc(invoiceRef, {
       ...updates,
+      lastUpdatedByUid: ctx.uid,
       updatedAt: new Date().toISOString()
     });
-    
+
     return {
       success: true,
       message: 'Invoice updated successfully'
@@ -290,8 +294,8 @@ export const deleteInvoice = async (invoiceId) => {
       };
     }
     
-    // Verify ownership
-    if (invoiceDoc.data().userId !== user.uid) {
+    const ctx = await getWorkerOrgContext();
+    if (!ctx || invoiceDoc.data().userId !== ctx.billingUserId) {
       return {
         success: false,
         error: 'Unauthorized access'
@@ -324,10 +328,13 @@ export const getInvoicesByStatus = async (status) => {
       return { success: false, error: 'User not authenticated' };
     }
     
+    const ctx = await getWorkerOrgContext();
+    if (!ctx) return { success: false, error: 'User not authenticated' };
+
     const invoicesRef = collection(db, 'invoices');
     const q = query(
       invoicesRef,
-      where('userId', '==', user.uid),
+      where('userId', '==', ctx.billingUserId),
       where('status', '==', status),
       orderBy('createdAt', 'desc')
     );
@@ -410,7 +417,8 @@ export const updateInvoiceStatus = async (invoiceId, updates) => {
     const invoiceRef = doc(db, 'invoices', invoiceId);
     const invoiceDoc = await getDoc(invoiceRef);
     if (!invoiceDoc.exists()) return { success: false, error: 'Invoice not found' };
-    if (invoiceDoc.data().userId !== user.uid) return { success: false, error: 'Unauthorized' };
+    const ctx = await getWorkerOrgContext();
+    if (!ctx || invoiceDoc.data().userId !== ctx.billingUserId) return { success: false, error: 'Unauthorized' };
     await updateDoc(invoiceRef, { ...updates, updatedAt: new Date().toISOString() });
     return { success: true, message: 'Updated' };
   } catch (error) {
@@ -470,10 +478,13 @@ export const getInvoiceStats = async () => {
       return { success: false, error: 'User not authenticated' };
     }
     
+    const ctx = await getWorkerOrgContext();
+    if (!ctx) return { success: false, error: 'User not authenticated' };
+
     const invoicesRef = collection(db, 'invoices');
-    const q = query(invoicesRef, where('userId', '==', user.uid));
+    const q = query(invoicesRef, where('userId', '==', ctx.billingUserId));
     const querySnapshot = await getDocs(q);
-    
+
     let totalRevenue = 0;
     let paidRevenue = 0;
     let unpaidRevenue = 0;
@@ -560,4 +571,60 @@ export const getCashCollected = async () => {
     console.error('Get cash collected error:', error);
     return { success: false, totalCollected: 0, byMethod: {}, data: [] };
   }
+};
+
+/** Maker: submit draft for checker approval */
+export const submitInvoiceForApproval = async (invoiceId) => {
+  const ref = doc(db, 'invoices', invoiceId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return { success: false, error: 'Invoice not found' };
+  const ctx = await getWorkerOrgContext();
+  if (!ctx || snap.data().userId !== ctx.billingUserId) return { success: false, error: 'Unauthorized' };
+  if (!canActAsInvoiceMaker(ctx)) return { success: false, error: 'Only a Maker or Admin can submit for approval.' };
+  await updateDoc(ref, {
+    approvalState: 'pending_checker',
+    submittedForApprovalAt: new Date().toISOString(),
+    lastUpdatedByUid: ctx.uid,
+    updatedAt: new Date().toISOString(),
+  });
+  return { success: true };
+};
+
+/** Checker: approve (before send) */
+export const approveInvoiceAsChecker = async (invoiceId) => {
+  const ref = doc(db, 'invoices', invoiceId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return { success: false, error: 'Invoice not found' };
+  const ctx = await getWorkerOrgContext();
+  if (!ctx || snap.data().userId !== ctx.billingUserId) return { success: false, error: 'Unauthorized' };
+  await updateDoc(ref, {
+    approvalState: 'approved',
+    checkerApprovedAt: new Date().toISOString(),
+    lastUpdatedByUid: ctx.uid,
+    updatedAt: new Date().toISOString(),
+  });
+  return { success: true };
+};
+
+/** Checker / org: issue to customer (mark sent) */
+export const issueInvoiceToCustomer = async (invoiceId) => {
+  const ref = doc(db, 'invoices', invoiceId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return { success: false, error: 'Invoice not found' };
+  const data = snap.data();
+  const ctx = await getWorkerOrgContext();
+  if (!ctx || data.userId !== ctx.billingUserId) return { success: false, error: 'Unauthorized' };
+  if (!canActAsInvoiceChecker(ctx)) return { success: false, error: 'Only a Checker or Admin can issue to the customer.' };
+  const a = data.approvalState;
+  if (a === 'pending_checker') {
+    return { success: false, error: 'Invoice is waiting for checker approval.' };
+  }
+  await updateDoc(ref, {
+    status: 'sent',
+    approvalState: 'issued',
+    issuedAt: new Date().toISOString(),
+    lastUpdatedByUid: ctx.uid,
+    updatedAt: new Date().toISOString(),
+  });
+  return { success: true };
 };

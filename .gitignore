@@ -30,3 +30,6 @@ Environment variables
 .env.local
 .env.production
 .env.production.local
+
+# Wrangler local secrets
+.dev.vars

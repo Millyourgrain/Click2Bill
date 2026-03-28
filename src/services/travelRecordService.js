@@ -1,5 +1,6 @@
 import { collection, query, where, getDocs, addDoc } from 'firebase/firestore';
 import { db, auth } from '../firebase/config';
+import { getWorkerOrgContext } from './workerOrgContext';
 
 const COLLECTION = 'travelRecords';
 
@@ -11,9 +12,12 @@ export const addTravelRecord = async (record) => {
     const user = auth.currentUser;
     if (!user) return { success: false, error: 'User not authenticated' };
 
+    const ctx = await getWorkerOrgContext();
+    if (!ctx) return { success: false, error: 'User not authenticated' };
+
     const ref = collection(db, COLLECTION);
     const payload = {
-      userId: user.uid,
+      userId: ctx.billingUserId,
       distanceKm: record.distanceKm != null ? Number(record.distanceKm) : 0,
       roundTripKm: record.roundTripKm != null ? Number(record.roundTripKm) : (record.distanceKm != null ? Number(record.distanceKm) * 2 : 0),
       travelDate: record.travelDate || new Date().toISOString().split('T')[0],
@@ -40,8 +44,11 @@ export const getTravelRecords = async () => {
     const user = auth.currentUser;
     if (!user) return { success: false, error: 'User not authenticated' };
 
+    const ctx = await getWorkerOrgContext();
+    if (!ctx) return { success: false, error: 'User not authenticated' };
+
     const ref = collection(db, COLLECTION);
-    const q = query(ref, where('userId', '==', user.uid));
+    const q = query(ref, where('userId', '==', ctx.billingUserId));
     const snapshot = await getDocs(q);
     const records = snapshot.docs
       .map((d) => ({ id: d.id, ...d.data() }))

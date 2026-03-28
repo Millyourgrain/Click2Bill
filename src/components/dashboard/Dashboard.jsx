@@ -1,16 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
-import { LogOut, Building, FileText, TrendingUp, Users, DollarSign, MapPin, Download } from 'lucide-react';
+import { LogOut, Building, FileText, TrendingUp, DollarSign, MapPin, Download, LayoutGrid, Users } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { logoutUser } from '../../services/authService';
 import { getCompanyInfo } from '../../services/companyService';
-import { getInvoiceStats, getInvoices, getAccountReceivables, getCashCollected, updateInvoiceStatus } from '../../services/invoiceService';
+import {
+  getInvoiceStats,
+  getInvoices,
+  getAccountReceivables,
+  getCashCollected,
+  updateInvoiceStatus,
+  submitInvoiceForApproval,
+  approveInvoiceAsChecker,
+  issueInvoiceToCustomer,
+} from '../../services/invoiceService';
 import { getTotalDistanceKm, getTravelRecords } from '../../services/travelRecordService';
+import DashboardCustomersTab from './DashboardCustomersTab';
 
 /** Worker / Agency dashboard only. Customers are redirected to customer dashboard. */
 function Dashboard() {
   const navigate = useNavigate();
-  const { currentUser, userRole } = useAuth();
+  const { currentUser, userRole, workerDashboardPersona } = useAuth();
+  const persona = workerDashboardPersona || 'org_admin';
 
   if (userRole === 'customer') return <Navigate to="/customer-dashboard" replace />;
   const [companyInfo, setCompanyInfo] = useState(null);
@@ -23,10 +34,12 @@ function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [markingInvoiceId, setMarkingInvoiceId] = useState(null);
   const [showPaymentMethod, setShowPaymentMethod] = useState(null);
+  const [invoiceWorkflowId, setInvoiceWorkflowId] = useState(null);
+  const [dashboardTab, setDashboardTab] = useState('overview');
 
   useEffect(() => {
     loadDashboardData();
-  }, []);
+  }, [persona]);
 
   const handleConfirmReceipt = async (invId) => {
     await updateInvoiceStatus(invId, { workerConfirmedReceiptAt: new Date().toISOString() });
@@ -45,7 +58,20 @@ function Dashboard() {
       ]);
       if (companyResult.success) setCompanyInfo(companyResult.data);
       if (statsResult.success) setStats(statsResult.data);
-      if (invResult.success) setInvoices(invResult.data?.slice(0, 20) || []);
+      if (invResult.success) {
+        let slice = invResult.data?.slice(0, 20) || [];
+        const mc =
+          companyResult.success && companyResult.data?.invoiceSystem === 'maker_checker';
+        if (mc && persona === 'org_admin') {
+          slice = slice.filter(
+            (inv) =>
+              inv.status !== 'draft' ||
+              inv.approvalState === 'pending_checker' ||
+              inv.approvalState === 'approved'
+          );
+        }
+        setInvoices(slice);
+      }
       if (arResult.success) setReceivables(arResult);
       if (cashResult.success) setCashCollected(cashResult);
       if (distanceResult.success) {
@@ -130,6 +156,13 @@ function Dashboard() {
     if (res.success) loadDashboardData();
   };
 
+  const runInvoiceWorkflow = async (invoiceId, fn) => {
+    setInvoiceWorkflowId(invoiceId);
+    const res = await fn(invoiceId);
+    setInvoiceWorkflowId(null);
+    if (res?.success) loadDashboardData();
+  };
+
   const handleLogout = async () => {
     await logoutUser();
     navigate('/login');
@@ -143,14 +176,34 @@ function Dashboard() {
     );
   }
 
+  const isMc = companyInfo?.invoiceSystem === 'maker_checker';
+  const canMaker = persona === 'maker' || persona === 'org_admin';
+  const canChecker = persona === 'checker' || persona === 'org_admin';
+  const dashboardHeading =
+    persona === 'maker'
+      ? 'Maker dashboard'
+      : persona === 'checker'
+        ? 'Checker dashboard'
+        : isMc
+          ? 'Admin dashboard'
+          : 'Authorized signatory dashboard';
+  const dashboardSub =
+    persona === 'maker'
+      ? 'Create, edit, and view all organization invoices.'
+      : persona === 'checker'
+        ? 'Approve, send to customers, and view all organization invoices.'
+        : isMc
+          ? 'Organization-wide view: drafts in workflow, approved items, and invoices sent to customers.'
+          : 'Full access to invoicing, travel log, and business profile.';
+
   return (
     <div style={{ minHeight: '100vh', background: '#f5f5f5' }}>
       <div style={{ background: 'white', borderBottom: '1px solid #e0e0e0', padding: '20px 40px' }}>
         <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <h1 style={{ fontSize: '24px', fontWeight: '700', margin: '0 0 4px 0' }}>Dashboard</h1>
+            <h1 style={{ fontSize: '24px', fontWeight: '700', margin: '0 0 4px 0' }}>{dashboardHeading}</h1>
             <p style={{ color: '#666', fontSize: '14px', margin: '4px 0 0 0' }}>
-              Welcome back, {currentUser?.fullName || currentUser?.email}
+              {dashboardSub} Welcome back, {currentUser?.fullName || currentUser?.email}.
             </p>
           </div>
           <button onClick={handleLogout} style={{ padding: '10px 20px', background: '#dc3545', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '600', fontSize: '14px' }}>
@@ -159,7 +212,60 @@ function Dashboard() {
         </div>
       </div>
 
+      <div style={{ background: '#fafafa', borderBottom: '1px solid #e8e8e8' }}>
+        <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 40px', display: 'flex', gap: '8px' }}>
+          <button
+            type="button"
+            onClick={() => setDashboardTab('overview')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '14px 18px',
+              border: 'none',
+              borderBottom: dashboardTab === 'overview' ? '3px solid #667eea' : '3px solid transparent',
+              background: 'transparent',
+              cursor: 'pointer',
+              fontWeight: dashboardTab === 'overview' ? '700' : '500',
+              color: dashboardTab === 'overview' ? '#333' : '#666',
+              fontSize: '14px',
+              marginBottom: '-1px',
+            }}
+          >
+            <LayoutGrid size={18} /> Overview
+          </button>
+          <button
+            type="button"
+            onClick={() => setDashboardTab('customers')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '14px 18px',
+              border: 'none',
+              borderBottom: dashboardTab === 'customers' ? '3px solid #667eea' : '3px solid transparent',
+              background: 'transparent',
+              cursor: 'pointer',
+              fontWeight: dashboardTab === 'customers' ? '700' : '500',
+              color: dashboardTab === 'customers' ? '#333' : '#666',
+              fontSize: '14px',
+              marginBottom: '-1px',
+            }}
+          >
+            <Users size={18} /> Customers
+          </button>
+        </div>
+      </div>
+
       <div style={{ maxWidth: '1200px', margin: '40px auto', padding: '0 40px' }}>
+        {dashboardTab === 'customers' && (
+          <div style={{ marginBottom: '32px' }}>
+            <DashboardCustomersTab />
+          </div>
+        )}
+
+        {dashboardTab === 'overview' && (
+        <>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '24px', marginBottom: '32px' }}>
           <div style={{ background: 'white', padding: '24px', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -183,6 +289,7 @@ function Dashboard() {
               </div>
             </div>
           </div>
+          {persona !== 'checker' && (
           <div style={{ background: 'white', padding: '24px', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div style={{ width: '48px', height: '48px', background: '#fff3e0', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -194,6 +301,8 @@ function Dashboard() {
               </div>
             </div>
           </div>
+          )}
+          {persona !== 'checker' && (
           <div style={{ background: 'white', padding: '24px', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div style={{ width: '48px', height: '48px', background: '#e8f5e9', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -205,6 +314,7 @@ function Dashboard() {
               </div>
             </div>
           </div>
+          )}
           <div style={{ background: 'white', padding: '24px', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div style={{ width: '48px', height: '48px', background: '#e8eaf6', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -223,28 +333,23 @@ function Dashboard() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
             <button onClick={() => navigate('/invoice')} style={{ padding: '20px', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', textAlign: 'left' }}>
               <FileText size={24} style={{ marginBottom: '8px' }} />
-              <p style={{ fontWeight: '600', margin: '0 0 4px 0' }}>Create invoice</p>
-              <p style={{ fontSize: '13px', opacity: 0.9, margin: 0 }}>Prepare and send invoice</p>
-            </button>
-            <button onClick={() => navigate('/customers/new')} style={{ padding: '20px', background: '#2196f3', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', textAlign: 'left' }}>
-              <Users size={24} style={{ marginBottom: '8px' }} />
-              <p style={{ fontWeight: '600', margin: '0 0 4px 0' }}>Customer</p>
-              <p style={{ fontSize: '13px', opacity: 0.9, margin: 0 }}>Add customer details</p>
+              <p style={{ fontWeight: '600', margin: '0 0 4px 0' }}>Invoice</p>
+              <p style={{ fontSize: '13px', opacity: 0.9, margin: 0 }}>Create, edit, approve, or send — depending on your role.</p>
             </button>
             <button onClick={() => navigate('/travel')} style={{ padding: '20px', background: '#ff9800', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', textAlign: 'left' }}>
               <MapPin size={24} style={{ marginBottom: '8px' }} />
-              <p style={{ fontWeight: '600', margin: '0 0 4px 0' }}>Travel cost & distance</p>
-              <p style={{ fontSize: '13px', opacity: 0.9, margin: 0 }}>Log trips and travel costs</p>
+              <p style={{ fontWeight: '600', margin: '0 0 4px 0' }}>Travel log</p>
+              <p style={{ fontSize: '13px', opacity: 0.9, margin: 0 }}>Log trips and travel costs.</p>
             </button>
             <button onClick={() => navigate('/setup-company')} style={{ padding: '20px', background: '#9c27b0', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', textAlign: 'left' }}>
               <Building size={24} style={{ marginBottom: '8px' }} />
               <p style={{ fontWeight: '600', margin: '0 0 4px 0' }}>Business profile</p>
-              <p style={{ fontSize: '13px', opacity: 0.9, margin: 0 }}>Company information & verification</p>
+              <p style={{ fontSize: '13px', opacity: 0.9, margin: 0 }}>Company information and verification; Admins manage teammates from setup.</p>
             </button>
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '24px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: persona === 'checker' ? '1fr' : '1fr 1fr', gap: '24px', marginBottom: '24px' }}>
           <div style={{ background: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
               <h2 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>Invoice history</h2>
@@ -253,29 +358,58 @@ function Dashboard() {
               </button>
             </div>
             {invoices.length === 0 ? (
-              <p style={{ color: '#666', fontSize: '14px' }}>No invoices yet. Create one from Quick Actions.</p>
+              <p style={{ color: '#666', fontSize: '14px' }}>No invoices in this list yet. Open Invoice to create or work on one.</p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {invoices.map((inv) => (
-                  <div key={inv.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #eee', flexWrap: 'wrap', gap: '8px' }}>
-                    <div>
-                      <span style={{ fontWeight: '600' }}>{inv.invoiceNumber}</span>
-                      <span style={{ marginLeft: '8px', fontSize: '13px', color: '#666' }}>{inv.customerName}</span>
+                {invoices.map((inv) => {
+                  const showSubmit =
+                    isMc &&
+                    canMaker &&
+                    inv.status === 'draft' &&
+                    inv.approvalState !== 'pending_checker' &&
+                    inv.approvalState !== 'approved';
+                  const showApprove = isMc && canChecker && inv.approvalState === 'pending_checker';
+                  const showIssue =
+                    isMc &&
+                    canChecker &&
+                    inv.status === 'draft' &&
+                    inv.approvalState !== 'pending_checker' &&
+                    inv.approvalState !== 'draft';
+                  const busy = invoiceWorkflowId === inv.id;
+                  return (
+                    <div key={inv.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #eee', flexWrap: 'wrap', gap: '8px' }}>
+                      <div>
+                        <span style={{ fontWeight: '600' }}>{inv.invoiceNumber}</span>
+                        <span style={{ marginLeft: '8px', fontSize: '13px', color: '#666' }}>{inv.customerName}</span>
+                        {inv.approvalState && (
+                          <span style={{ marginLeft: '8px', fontSize: '12px', color: '#555', textTransform: 'capitalize' }}>({String(inv.approvalState).replace(/_/g, ' ')})</span>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', flexWrap: 'wrap' }}>
+                        <span style={{ color: '#666' }}>{inv.status}</span>
+                        <span style={{ fontWeight: '600' }}>${(inv.total || 0).toFixed(2)}</span>
+                        {showSubmit && (
+                          <button type="button" disabled={busy} onClick={() => runInvoiceWorkflow(inv.id, submitInvoiceForApproval)} style={{ padding: '4px 10px', background: '#6366f1', color: 'white', border: 'none', borderRadius: '6px', cursor: busy ? 'wait' : 'pointer', fontSize: '12px', fontWeight: '500' }}>Submit for approval</button>
+                        )}
+                        {showApprove && (
+                          <button type="button" disabled={busy} onClick={() => runInvoiceWorkflow(inv.id, approveInvoiceAsChecker)} style={{ padding: '4px 10px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: busy ? 'wait' : 'pointer', fontSize: '12px', fontWeight: '500' }}>Approve</button>
+                        )}
+                        {showIssue && (
+                          <button type="button" disabled={busy} onClick={() => runInvoiceWorkflow(inv.id, issueInvoiceToCustomer)} style={{ padding: '4px 10px', background: '#ca8a04', color: 'white', border: 'none', borderRadius: '6px', cursor: busy ? 'wait' : 'pointer', fontSize: '12px', fontWeight: '500' }}>Send to customer</button>
+                        )}
+                        {persona !== 'checker' && inv.status === 'paid' && !inv.workerConfirmedReceiptAt && (
+                          <button onClick={() => handleConfirmReceipt(inv.id)} style={{ padding: '4px 10px', background: '#0d9488', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '500' }}>Confirm receipt</button>
+                        )}
+                      </div>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
-                      <span style={{ color: '#666' }}>{inv.status}</span>
-                      <span style={{ fontWeight: '600' }}>${(inv.total || 0).toFixed(2)}</span>
-                      {inv.status === 'paid' && !inv.workerConfirmedReceiptAt && (
-                        <button onClick={() => handleConfirmReceipt(inv.id)} style={{ padding: '4px 10px', background: '#0d9488', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '500' }}>Confirm receipt</button>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
-            <button onClick={() => navigate('/invoice')} style={{ marginTop: '12px', fontSize: '14px', color: '#667eea', background: 'none', border: 'none', cursor: 'pointer', fontWeight: '500' }}>Create invoice →</button>
+            <button onClick={() => navigate('/invoice')} style={{ marginTop: '12px', fontSize: '14px', color: '#667eea', background: 'none', border: 'none', cursor: 'pointer', fontWeight: '500' }}>Open invoice →</button>
           </div>
 
+          {persona !== 'checker' && (
           <div style={{ background: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
               <h2 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>Account receivables (ageing)</h2>
@@ -333,11 +467,12 @@ function Dashboard() {
               </>
             )}
           </div>
+          )}
         </div>
 
         <div style={{ background: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', marginBottom: '24px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
-            <h2 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>Distance travelled (business)</h2>
+            <h2 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>Travel log (recent)</h2>
             <button onClick={handleExportTravelRecords} disabled={travelRecords.length === 0} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', background: travelRecords.length ? '#3f51b5' : '#ccc', color: 'white', border: 'none', borderRadius: '8px', cursor: travelRecords.length ? 'pointer' : 'not-allowed', fontSize: '13px', fontWeight: '500' }}>
               <Download size={16} /> Export CSV
             </button>
@@ -383,6 +518,8 @@ function Dashboard() {
               )}
             </div>
           </div>
+        )}
+        </>
         )}
       </div>
 

@@ -9,6 +9,7 @@ import {
   where,
 } from 'firebase/firestore';
 import { db, auth } from '../firebase/config';
+import { getWorkerOrgContext } from './workerOrgContext';
 import { addNotificationForEmail } from './notificationService';
 
 /**
@@ -19,9 +20,12 @@ export const createVisit = async (visitData) => {
     const user = auth.currentUser;
     if (!user) return { success: false, error: 'User not authenticated' };
 
+    const ctx = await getWorkerOrgContext();
+    if (!ctx) return { success: false, error: 'User not authenticated' };
+
     const visitsRef = collection(db, 'visits');
     const payload = {
-      userId: user.uid,
+      userId: ctx.billingUserId,
       customerId: visitData.customerId,
       customerName: visitData.customerName || '',
       serviceAddress: visitData.serviceAddress || '',
@@ -63,7 +67,8 @@ export const checkIn = async (visitId) => {
     const visitRef = doc(db, 'visits', visitId);
     const visitDoc = await getDoc(visitRef);
     if (!visitDoc.exists()) return { success: false, error: 'Visit not found' };
-    if (visitDoc.data().userId !== user.uid) return { success: false, error: 'Unauthorized' };
+    const ctx = await getWorkerOrgContext();
+    if (!ctx || visitDoc.data().userId !== ctx.billingUserId) return { success: false, error: 'Unauthorized' };
 
     const now = new Date().toISOString();
     const data = visitDoc.data();
@@ -94,7 +99,8 @@ export const checkOut = async (visitId) => {
     const visitRef = doc(db, 'visits', visitId);
     const visitDoc = await getDoc(visitRef);
     if (!visitDoc.exists()) return { success: false, error: 'Visit not found' };
-    if (visitDoc.data().userId !== user.uid) return { success: false, error: 'Unauthorized' };
+    const ctx = await getWorkerOrgContext();
+    if (!ctx || visitDoc.data().userId !== ctx.billingUserId) return { success: false, error: 'Unauthorized' };
 
     const now = new Date().toISOString();
     const data = visitDoc.data();
@@ -125,7 +131,8 @@ export const updateVisitCheckTimes = async (visitId, { checkInTime, checkOutTime
     const visitRef = doc(db, 'visits', visitId);
     const visitDoc = await getDoc(visitRef);
     if (!visitDoc.exists()) return { success: false, error: 'Visit not found' };
-    if (visitDoc.data().userId !== user.uid) return { success: false, error: 'Unauthorized' };
+    const ctx = await getWorkerOrgContext();
+    if (!ctx || visitDoc.data().userId !== ctx.billingUserId) return { success: false, error: 'Unauthorized' };
 
     const updates = { updatedAt: new Date().toISOString() };
     if (checkInTime != null) {
@@ -153,8 +160,11 @@ export const getVisits = async (filters = {}) => {
     const user = auth.currentUser;
     if (!user) return { success: false, error: 'User not authenticated' };
 
+    const ctx = await getWorkerOrgContext();
+    if (!ctx) return { success: false, error: 'User not authenticated' };
+
     const visitsRef = collection(db, 'visits');
-    const q = query(visitsRef, where('userId', '==', user.uid));
+    const q = query(visitsRef, where('userId', '==', ctx.billingUserId));
     const snapshot = await getDocs(q);
     let visits = snapshot.docs
       .map((d) => ({ id: d.id, ...d.data() }))
@@ -210,7 +220,8 @@ export const getVisit = async (visitId) => {
     const visitDoc = await getDoc(visitRef);
     if (!visitDoc.exists()) return { success: false, error: 'Visit not found' };
     const data = visitDoc.data();
-    if (data.userId !== user.uid) return { success: false, error: 'Unauthorized' };
+    const ctx = await getWorkerOrgContext();
+    if (!ctx || data.userId !== ctx.billingUserId) return { success: false, error: 'Unauthorized' };
 
     return { success: true, data: { id: visitDoc.id, ...data } };
   } catch (error) {

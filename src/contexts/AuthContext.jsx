@@ -2,6 +2,7 @@ import React, { createContext, useState, useEffect, useContext } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase/config';
+import { getWorkerDashboardPersona } from '../services/workerOrgContext';
 
 const AuthContext = createContext();
 
@@ -75,11 +76,22 @@ export const AuthProvider = ({ children }) => {
     return unsubscribe;
   }, []);
 
+  const workerDashboardPersona = currentUser
+    ? getWorkerDashboardPersona({
+        uid: currentUser.uid,
+        organizationOwnerId:
+          typeof currentUser.organizationOwnerId === 'string' ? currentUser.organizationOwnerId.trim() : '',
+        userTeamRole:
+          typeof currentUser.userTeamRole === 'string' ? currentUser.userTeamRole.toLowerCase() : '',
+      })
+    : null;
+
   const value = {
     currentUser,
     userRole,
     loading,
     refreshUserData,
+    workerDashboardPersona,
     isAuthenticated: !!currentUser,
     isAdmin: userRole === 'admin',
     isWorker: userRole === 'worker' || userRole === 'user' || userRole === 'admin',

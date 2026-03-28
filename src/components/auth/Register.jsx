@@ -10,7 +10,8 @@ function Register() {
   const teamRoleParam = searchParams.get('teamRole')?.trim() || '';
   const inviteEmail = searchParams.get('email')?.trim() || '';
   const isTeamInvite =
-    Boolean(orgId) && (teamRoleParam === 'maker' || teamRoleParam === 'checker');
+    Boolean(orgId) &&
+    (teamRoleParam === 'maker' || teamRoleParam === 'checker' || teamRoleParam === 'admin');
 
   const [formData, setFormData] = useState({
     email: '',
@@ -125,7 +126,7 @@ function Register() {
           </h1>
           <p style={{ color: '#666', fontSize: '15px' }}>
             {isTeamInvite
-              ? `You’re joining as ${teamRoleParam === 'maker' ? 'a Maker (issuer)' : 'a Checker (approver)'}. Set a password for your invited email, then you’ll go to the dashboard.`
+              ? `You’re joining as ${teamRoleParam === 'maker' ? 'a Maker (issuer)' : teamRoleParam === 'checker' ? 'a Checker (approver)' : 'an Organization Admin'}. Set a password for your invited email, then you’ll go to the dashboard.`
               : 'Use your work email and a secure password. You’ll add company details next.'}
           </p>
         </div>

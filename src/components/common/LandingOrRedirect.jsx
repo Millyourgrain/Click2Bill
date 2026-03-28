@@ -1,10 +1,10 @@
 import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import RoleSelect from '../auth/RoleSelect';
+import MarketingLanding from '../marketing/MarketingLanding';
 
 /**
- * "/" route: not logged in → company landing. Logged in → dashboard by role.
+ * "/" route: not logged in → marketing landing (free PDF builder + register). Logged in → dashboard by role.
  */
 function LandingOrRedirect() {
   const { currentUser, userRole, loading } = useAuth();
@@ -23,7 +23,7 @@ function LandingOrRedirect() {
     return <Navigate to={role === 'customer' ? '/customer-dashboard' : '/dashboard'} replace />;
   }
 
-  return <RoleSelect />;
+  return <MarketingLanding />;
 }
 
 export default LandingOrRedirect;

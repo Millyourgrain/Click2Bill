@@ -17,7 +17,8 @@ export const registerUser = async (userData) => {
   try {
     const { email, password, organizationOwnerId, teamRole } = userData;
     const orgId = typeof organizationOwnerId === 'string' ? organizationOwnerId.trim() : '';
-    const roleFromInvite = teamRole === 'maker' || teamRole === 'checker' ? teamRole : '';
+    const roleFromInvite =
+      teamRole === 'maker' || teamRole === 'checker' || teamRole === 'admin' ? teamRole : '';
     const isTeamMember = Boolean(orgId && roleFromInvite);
 
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);

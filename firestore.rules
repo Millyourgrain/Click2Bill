@@ -14,6 +14,17 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Team member: organizationOwnerId on users/{uid} points to org billing uid (company owner).
+    function isOrgTeamMemberFor(billingUserId) {
+      return request.auth != null && (
+        request.auth.uid == billingUserId
+        || (
+          exists(/databases/$(database)/documents/users/$(request.auth.uid))
+          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.organizationOwnerId == billingUserId
+        )
+      );
+    }
+
     // -------------------------------------------------------------------
     // USERS - Auth user profiles (role, email, etc.)
     // Used by: authService, notificationService (getUserIdByEmail)
@@ -37,7 +48,8 @@ service cloud.firestore {
           && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.organizationOwnerId == companyId
         )
       );
-      allow update, delete: if request.auth != null && companyId == request.auth.uid;
+      allow update: if request.auth != null && isOrgTeamMemberFor(companyId);
+      allow delete: if request.auth != null && companyId == request.auth.uid;
       allow create: if request.auth != null && companyId == request.auth.uid && request.resource.data.userId == request.auth.uid;
     }
 
@@ -46,8 +58,8 @@ service cloud.firestore {
     // Used by: customerService
     // -------------------------------------------------------------------
     match /customers/{docId} {
-      allow read, update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow read, update, delete: if request.auth != null && isOrgTeamMemberFor(resource.data.userId);
+      allow create: if request.auth != null && isOrgTeamMemberFor(request.resource.data.userId);
     }
 
     // -------------------------------------------------------------------
@@ -55,8 +67,8 @@ service cloud.firestore {
     // Used by: visitService
     // -------------------------------------------------------------------
     match /visits/{docId} {
-      allow read, update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow read, update, delete: if request.auth != null && isOrgTeamMemberFor(resource.data.userId);
+      allow create: if request.auth != null && isOrgTeamMemberFor(request.resource.data.userId);
     }
 
     // -------------------------------------------------------------------
@@ -66,13 +78,13 @@ service cloud.firestore {
     // Customer: read & update when customerEmail or payorEmail matches their email
     // -------------------------------------------------------------------
     match /invoices/{docId} {
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null && isOrgTeamMemberFor(request.resource.data.userId);
       allow read, update: if request.auth != null && (
-        resource.data.userId == request.auth.uid
+        isOrgTeamMemberFor(resource.data.userId)
         || resource.data.customerEmail == request.auth.token.email
         || resource.data.payorEmail == request.auth.token.email
       );
-      allow delete: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow delete: if request.auth != null && isOrgTeamMemberFor(resource.data.userId);
     }
 
     // -------------------------------------------------------------------
@@ -80,8 +92,8 @@ service cloud.firestore {
     // Used by: travelRecordService
     // -------------------------------------------------------------------
     match /travelRecords/{docId} {
-      allow read, update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow read, update, delete: if request.auth != null && isOrgTeamMemberFor(resource.data.userId);
+      allow create: if request.auth != null && isOrgTeamMemberFor(request.resource.data.userId);
     }
 
     // -------------------------------------------------------------------

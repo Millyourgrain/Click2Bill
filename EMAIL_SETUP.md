@@ -14,7 +14,7 @@ This app sends emails (signup links, invoices, appointment/visit notifications) 
 
 ### 1. Add environment variables
 
-In **Cloudflare Dashboard** → **Workers & Pages** → **clicktobill** → **Settings** → **Variables and Secrets**:
+In **Cloudflare Dashboard** → **Workers & Pages** → **click2bill** → **Settings** → **Variables and Secrets**:
 
 | Variable | Type | Value |
 |----------|------|-------|
@@ -29,7 +29,7 @@ Then paste your Resend API key when prompted.
 
 ### 2. Optional: Custom "From" address
 
-By default, emails are sent from `ClickToBill <onboarding@resend.dev>` (Resend's free sender).
+By default, emails are sent from `Click2Bill <onboarding@resend.dev>` (Resend's free sender).
 
 To use your own domain, add a variable:
 - `FROM_EMAIL` = `Your Company <noreply@yourdomain.com>`

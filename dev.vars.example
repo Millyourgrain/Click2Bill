@@ -1,0 +1,7 @@
+# Copy to ".dev.vars" for `npx wrangler dev` (same folder as wrangler.toml).
+# ".dev.vars" is gitignored — do not commit secrets.
+#
+# FIREBASE_API_KEY must match VITE_FIREBASE_API_KEY in .env (same Firebase Web API key).
+
+FIREBASE_API_KEY=
+RESEND_API_KEY=

@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Download, Plus, Trash2, Send, Home, Mail, FileCheck, CheckCircle, MapPin } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { getCompanyInfo } from '../../services/companyService';
-import { getCustomer, getCustomers } from '../../services/customerService';
+import { getCustomer, getCustomers, upsertCustomerFromInvoice, findRecurringCustomerByName } from '../../services/customerService';
 import { getVisit, getVisitHours, getVisitsHoursInRange } from '../../services/visitService';
 import { saveInvoice } from '../../services/invoiceService';
 import { getTravelRecords, addTravelRecord } from '../../services/travelRecordService';
@@ -66,6 +66,8 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
   const [signature, setSignature] = useState(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [customers, setCustomers] = useState([]);
+  const [payorDifferentFromCustomer, setPayorDifferentFromCustomer] = useState(false);
+  const [isRecurringCustomer, setIsRecurringCustomer] = useState(false);
   const [travelRecords, setTravelRecords] = useState([]);
   const [showTravelPicker, setShowTravelPicker] = useState(false);
   const [loadingTravelRecords, setLoadingTravelRecords] = useState(false);
@@ -123,6 +125,8 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
       if (draft.headerTemplate) setHeaderTemplate(draft.headerTemplate);
       if (draft.visitId) setVisitId(draft.visitId);
       if (draft.customerId) setCustomerId(draft.customerId);
+      if (draft.payorDifferentFromCustomer != null) setPayorDifferentFromCustomer(!!draft.payorDifferentFromCustomer);
+      if (draft.isRecurringCustomer != null) setIsRecurringCustomer(!!draft.isRecurringCustomer);
       if (draft.servicePeriodVisits?.length) setServicePeriodVisits(draft.servicePeriodVisits);
       if (draft.signature) setSignature(draft.signature);
       if (draft.reminderEnabled != null) setReminderEnabled(draft.reminderEnabled);
@@ -200,11 +204,34 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
     }
     if (step !== 'preview' || !savedInvoiceId) saveDraft();
     else sessionStorage.removeItem(STORAGE_KEY);
-  }, [invoice, step, headerTemplate, visitId, customerId, servicePeriodVisits, signature, reminderEnabled, reminderFrequency, savedInvoiceId]);
+  }, [invoice, step, headerTemplate, visitId, customerId, payorDifferentFromCustomer, isRecurringCustomer, servicePeriodVisits, signature, reminderEnabled, reminderFrequency, savedInvoiceId]);
 
   useEffect(() => {
     getCustomers().then((r) => r.success && setCustomers(r.data || []));
   }, []);
+
+  useEffect(() => {
+    if (!isRecurringCustomer) return;
+    const name = (invoice.customerName || '').trim();
+    if (name.length < 2) return;
+    const t = setTimeout(() => {
+      findRecurringCustomerByName(name).then((r) => {
+        if (!r.success || !r.data) return;
+        const c = r.data;
+        setCustomerId(c.id);
+        const payorDiff = c.isPayorSameAsCustomer === false;
+        setPayorDifferentFromCustomer(payorDiff);
+        setInvoice((prev) => ({
+          ...prev,
+          customerEmail: c.customerEmail || prev.customerEmail,
+          serviceAddress: c.serviceAddress ?? prev.serviceAddress,
+          payorName: payorDiff ? (c.payorName || '') : '',
+          payorEmail: payorDiff ? (c.payorEmail || '') : '',
+        }));
+      });
+    }, 450);
+    return () => clearTimeout(t);
+  }, [invoice.customerName, isRecurringCustomer]);
 
   const loadCompanyData = async () => {
     try {
@@ -224,14 +251,17 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
       getCustomer(customerIdParam).then((r) => {
         if (r.success && r.data) {
           const c = r.data;
+          const payorDiff = c.isPayorSameAsCustomer === false;
+          setPayorDifferentFromCustomer(payorDiff);
+          setIsRecurringCustomer(!!c.isRecurring);
           setInvoice((prev) => ({
             ...prev,
             customerName: c.customerName || prev.customerName,
             customerEmail: c.customerEmail || prev.customerEmail,
             customerPhone: c.customerPhone,
             serviceAddress: c.serviceAddress || prev.serviceAddress,
-            payorName: c.isPayorSameAsCustomer ? '' : (c.payorName || prev.payorName || ''),
-            payorEmail: c.isPayorSameAsCustomer ? c.customerEmail : c.payorEmail || c.customerEmail,
+            payorName: payorDiff ? (c.payorName || prev.payorName || '') : '',
+            payorEmail: payorDiff ? (c.payorEmail || c.customerEmail) : '',
           }));
         }
       });
@@ -500,8 +530,9 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
         customerName: invoice.customerName,
         customerEmail: invoice.customerEmail,
         serviceAddress: invoice.serviceAddress,
-        payorName: invoice.payorName || '',
-        payorEmail: invoice.payorEmail || invoice.customerEmail,
+        isPayorDifferentFromCustomer: payorDifferentFromCustomer,
+        payorName: payorDifferentFromCustomer ? (invoice.payorName || '') : '',
+        payorEmail: payorDifferentFromCustomer ? (invoice.payorEmail || '') : invoice.customerEmail,
         items: invoice.items,
         travelItems: invoice.travelItems,
         hoursWorked: invoice.hoursWorked,
@@ -522,6 +553,23 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
       const result = await saveInvoice(invoiceData);
       
       if (result.success) {
+        const upsert = await upsertCustomerFromInvoice({
+          billingCustomerId: customerId,
+          customerName: invoice.customerName,
+          customerEmail: invoice.customerEmail,
+          serviceAddress: invoice.serviceAddress,
+          payorDifferentFromCustomer,
+          payorName: invoice.payorName,
+          payorEmail: invoice.payorEmail,
+          isRecurringCustomer,
+        });
+        if (upsert.success && upsert.data?.id) {
+          if (upsert.data.id !== customerId) setCustomerId(upsert.data.id);
+          await updateInvoice(result.data.id, { customerId: upsert.data.id });
+          getCustomers().then((r) => r.success && setCustomers(r.data || []));
+        } else if (upsert.error && upsert.error !== 'Customer name and email required') {
+          console.warn('Customer upsert:', upsert.error);
+        }
         if (status === 'sent' && (invoice.travelItems || []).length > 0) {
           for (const item of invoice.travelItems) {
             if (item.id && item.id.startsWith('travel-') && !item.id.startsWith('travel-rec-')) {
@@ -767,17 +815,23 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
                       getCustomer(id).then((r) => {
                         if (r.success && r.data) {
                           const c = r.data;
+                          const payorDiff = c.isPayorSameAsCustomer === false;
+                          setPayorDifferentFromCustomer(payorDiff);
+                          setIsRecurringCustomer(!!c.isRecurring);
                           setInvoice((prev) => ({
                             ...prev,
                             customerName: c.customerName || prev.customerName,
                             customerEmail: c.customerEmail || prev.customerEmail,
                             customerPhone: c.customerPhone,
                             serviceAddress: c.serviceAddress || prev.serviceAddress,
-                            payorName: c.isPayorSameAsCustomer ? '' : (c.payorName || prev.payorName || ''),
-                            payorEmail: c.isPayorSameAsCustomer ? c.customerEmail : (c.payorEmail || c.customerEmail),
+                            payorName: payorDiff ? (c.payorName || prev.payorName || '') : '',
+                            payorEmail: payorDiff ? (c.payorEmail || c.customerEmail) : '',
                           }));
                         }
                       });
+                    } else {
+                      setPayorDifferentFromCustomer(false);
+                      setIsRecurringCustomer(false);
                     }
                   }}
                   className="form-input"
@@ -803,18 +857,57 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
               <label className="form-label">Service Address</label>
               <textarea value={invoice.serviceAddress} onChange={(e) => setInvoice({ ...invoice, serviceAddress: e.target.value })} rows={2} className="form-textarea" />
             </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '12px', cursor: 'pointer', fontSize: '14px', color: '#374151' }}>
+              <input
+                type="checkbox"
+                checked={isRecurringCustomer}
+                onChange={(e) => setIsRecurringCustomer(e.target.checked)}
+              />
+              <span><strong>Recurring customer</strong> — save details for this name so a future invoice can auto-fill email, address, and payor after you enter the same name.</span>
+            </label>
             <div style={{ marginTop: '16px', padding: '16px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-              <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '12px', color: '#555' }}>Payor (if different from customer)</div>
-              <div className="form-grid-2">
-                <div className="form-group">
-                  <label className="form-label">Payor Name</label>
-                  <input type="text" value={invoice.payorName || ''} onChange={(e) => setInvoice({ ...invoice, payorName: e.target.value })} className="form-input" placeholder="Leave blank if same as customer" />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Payor Email</label>
-                  <input type="email" value={invoice.payorEmail || ''} onChange={(e) => setInvoice({ ...invoice, payorEmail: e.target.value })} className="form-input" placeholder="Billing / payment contact email" />
-                </div>
-              </div>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', marginBottom: payorDifferentFromCustomer ? '14px' : 0 }}>
+                <input
+                  type="checkbox"
+                  checked={payorDifferentFromCustomer}
+                  onChange={(e) => {
+                    const on = e.target.checked;
+                    setPayorDifferentFromCustomer(on);
+                    if (!on) {
+                      setInvoice((prev) => ({ ...prev, payorName: '', payorEmail: '' }));
+                    }
+                  }}
+                  style={{ marginTop: '3px' }}
+                />
+                <span style={{ fontSize: '14px', lineHeight: 1.45 }}><strong>Payor is different from the customer</strong> — enable only when the person or organization paying the invoice is not the customer named above.</span>
+              </label>
+              {payorDifferentFromCustomer && (
+                <>
+                  <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '12px', color: '#555' }}>Payor (billing contact)</div>
+                  <div className="form-grid-2">
+                    <div className="form-group">
+                      <label className="form-label">Payor name *</label>
+                      <input
+                        type="text"
+                        value={invoice.payorName || ''}
+                        onChange={(e) => setInvoice({ ...invoice, payorName: e.target.value })}
+                        className="form-input"
+                        placeholder="Legal or billing name"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Payor email *</label>
+                      <input
+                        type="email"
+                        value={invoice.payorEmail || ''}
+                        onChange={(e) => setInvoice({ ...invoice, payorEmail: e.target.value })}
+                        className="form-input"
+                        placeholder="Where we send the invoice"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
@@ -1075,7 +1168,12 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
 
           <button
             onClick={() => setStep('signature')}
-            disabled={!companyInfo || !invoice.customerName || !invoice.customerEmail}
+            disabled={
+              !companyInfo
+              || !invoice.customerName
+              || !invoice.customerEmail
+              || (payorDifferentFromCustomer && (!invoice.payorName?.trim() || !invoice.payorEmail?.trim()))
+            }
             className="continue-button"
           >
             Continue to Signature
@@ -1315,7 +1413,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
                 <div style={{ fontSize: '14px', color: '#666', marginBottom: '4px' }}>
                   {invoice.customerEmail}
                 </div>
-                {((invoice.payorName && invoice.payorName !== invoice.customerName) || (invoice.payorEmail && invoice.payorEmail !== invoice.customerEmail)) && (
+                {payorDifferentFromCustomer && (invoice.payorName || invoice.payorEmail) && (
                   <div style={{ fontSize: '13px', color: '#555', marginTop: '8px', padding: '8px', background: '#f8f9fa', borderRadius: '6px' }}>
                     <div style={{ fontWeight: '600', marginBottom: '2px' }}>Payor</div>
                     {invoice.payorName && <div>{invoice.payorName}</div>}

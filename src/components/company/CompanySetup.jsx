@@ -31,6 +31,7 @@ const INVOICE_SYSTEM = {
 
 const TRANSACTION_ROLE = {
   AUTH: 'authorized_signatory',
+  ADMIN: 'admin',
   MAKER: 'maker',
   CHECKER: 'checker',
 };
@@ -46,6 +47,7 @@ const VERIFICATION_DOCS = [
 /** Permission rows: create, edit, approve, send, view, manage */
 const PERMISSION_MATRIX = {
   auth: [true, true, true, true, true, true],
+  admin: [true, true, true, true, true, true],
   maker: [true, true, false, false, true, false],
   checker: [false, false, true, true, true, false],
 };
@@ -59,9 +61,9 @@ const PERMISSION_LABELS = [
   'Manage users',
 ];
 
-/** Five screens: points 1–3, 4–6, 7–9, 10–11, then 12–14 (photo ID, proof of address, acknowledgement). */
-const WIZARD_PAGE_COUNT = 5;
-const WIZARD_POINT_LABELS = ['1–3', '4–6', '7–9', '10–11', '12–14'];
+/** Four screens: 1–3, 4 & 8 (BN + GST), 9–13, 5–7 + 14 (documents + acknowledgement) */
+const WIZARD_PAGE_COUNT = 4;
+const WIZARD_POINT_LABELS = ['1–3', '4, 8', '9–13', '5–7, 14'];
 
 function wizardPointRange(pageIndex) {
   return WIZARD_POINT_LABELS[pageIndex] ?? '';
@@ -132,8 +134,10 @@ function PermissionsTableByModel({ invoiceSystem, userTransactionRole }) {
   }
 
   if (invoiceSystem === INVOICE_SYSTEM.MC) {
+    const admin = PERMISSION_MATRIX.admin;
     const maker = PERMISSION_MATRIX.maker;
     const checker = PERMISSION_MATRIX.checker;
+    const hlAdmin = userTransactionRole === TRANSACTION_ROLE.ADMIN;
     const hlMaker = userTransactionRole === TRANSACTION_ROLE.MAKER;
     const hlChecker = userTransactionRole === TRANSACTION_ROLE.CHECKER;
     return (
@@ -142,6 +146,7 @@ function PermissionsTableByModel({ invoiceSystem, userTransactionRole }) {
           <thead>
             <tr>
               <th style={headerBg(false)}>Permission</th>
+              <th style={headerBg(hlAdmin)}>Admin</th>
               <th style={headerBg(hlMaker)}>Maker (issuer)</th>
               <th style={headerBg(hlChecker)}>Checker (approver)</th>
             </tr>
@@ -150,6 +155,9 @@ function PermissionsTableByModel({ invoiceSystem, userTransactionRole }) {
             {PERMISSION_LABELS.map((label, i) => (
               <tr key={label}>
                 <td style={cellLeft}>{label}</td>
+                <td style={{ ...baseCell, background: hlAdmin ? 'rgba(22, 163, 74, 0.08)' : undefined }}>
+                  {tick(admin[i])}
+                </td>
                 <td style={{ ...baseCell, background: hlMaker ? 'rgba(22, 163, 74, 0.08)' : undefined }}>
                   {tick(maker[i])}
                 </td>
@@ -161,7 +169,7 @@ function PermissionsTableByModel({ invoiceSystem, userTransactionRole }) {
           </tbody>
         </table>
         <p style={{ fontSize: '13px', color: '#666', marginTop: '12px', marginBottom: 0 }}>
-          The authorized signatory column is hidden for maker–checker setups. After you choose your personal role in section 10, your column is highlighted.
+          After you choose your personal role in section 12, that column is highlighted. In section 13 you invite two people and assign each a sign-up role — exactly one Maker and one Checker.
         </p>
       </div>
     );
@@ -174,6 +182,8 @@ function acknowledgementCopy(role) {
   switch (role) {
     case TRANSACTION_ROLE.AUTH:
       return 'I confirm that I am the authorized signatory for this company. I acknowledge that I may create, edit, approve, and send invoices, view all invoices, and manage users, consistent with the permissions above.';
+    case TRANSACTION_ROLE.ADMIN:
+      return 'I confirm that I am the Organization Admin. I acknowledge that I may perform all invoicing actions, view all invoices, and manage users, consistent with the permissions above.';
     case TRANSACTION_ROLE.MAKER:
       return 'I confirm that I am the Maker (issuer). I acknowledge that I may create and edit invoices, and view all invoices, consistent with the permissions above.';
     case TRANSACTION_ROLE.CHECKER:
@@ -185,7 +195,7 @@ function acknowledgementCopy(role) {
 
 function CompanySetup() {
   const navigate = useNavigate();
-  const { currentUser } = useAuth();
+  const { currentUser, refreshUserData } = useAuth();
   const [formData, setFormData] = useState({
     businessStructure: '',
     legalBusinessName: '',
@@ -204,6 +214,7 @@ function CompanySetup() {
     invoiceSystem: '',
     userTransactionRole: '',
     eInvoiceIssuerName: '',
+    authPrimaryUserAddress: '',
     authSoleSignatoryConfirmed: false,
     mcPrimaryUserFullLegalName: '',
     mcPrimaryUserAddress: '',
@@ -223,8 +234,10 @@ function CompanySetup() {
   const [success, setSuccess] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [verifyDocType, setVerifyDocType] = useState('');
-  const [mcInviteeCount, setMcInviteeCount] = useState(1);
-  const [mcInvitees, setMcInvitees] = useState([{ email: '', role: 'maker' }]);
+  const [mcInvitees, setMcInvitees] = useState([
+    { email: '', role: 'maker' },
+    { email: '', role: 'checker' },
+  ]);
   const [wizardStep, setWizardStep] = useState(0);
 
   useEffect(() => {
@@ -253,18 +266,12 @@ function CompanySetup() {
         setLogoPreview(d.logoUrl || null);
         setIsEditing(true);
         if (Array.isArray(d.mcInvitees) && d.mcInvitees.length > 0) {
-          const n = Math.min(5, Math.max(1, d.mcInviteeCount || d.mcInvitees.length));
-          setMcInviteeCount(n);
-          setMcInvitees(
-            d.mcInvitees.slice(0, n).map((row) => ({
-              email: row.email || '',
-              role: row.role === 'checker' ? 'checker' : 'maker',
-            }))
-          );
-        } else if (d.mcInviteeCount >= 1 && d.mcInviteeCount <= 5) {
-          const n = d.mcInviteeCount;
-          setMcInviteeCount(n);
-          setMcInvitees(Array.from({ length: n }, () => ({ email: '', role: 'maker' })));
+          const makerRow = d.mcInvitees.find((r) => r.role === 'maker') || d.mcInvitees[0];
+          const checkerRow = d.mcInvitees.find((r) => r.role === 'checker') || d.mcInvitees[1];
+          setMcInvitees([
+            { email: (makerRow?.email || '').trim(), role: 'maker' },
+            { email: (checkerRow?.email || '').trim(), role: 'checker' },
+          ]);
         }
       }
     })();
@@ -284,68 +291,72 @@ function CompanySetup() {
     if (step === 1) {
       const bn = formData.bnNumber.replace(/\D/g, '');
       if (bn.length !== 9) return 'Business number (BN) must be 9 digits (point 4).';
-      if (countVerificationUploads() < 2) return 'Upload at least two verification document types (point 5).';
       return '';
     }
     if (step === 2) {
       if (!/^\d{5}$/.test(formData.bankTransitNumber.trim())) {
-        return 'Transit number must be exactly 5 digits (point 7).';
+        return 'Transit number must be exactly 5 digits (point 9).';
       }
       if (!/^\d{3}$/.test(formData.bankInstitutionNumber.trim())) {
-        return 'Institution number must be exactly 3 digits (point 7).';
+        return 'Institution number must be exactly 3 digits (point 9).';
       }
       const acct = formData.bankAccountNumber.replace(/\s/g, '');
-      if (!/^\d{1,12}$/.test(acct)) return 'Account number must be 1–12 digits only (point 7).';
-      if (!formData.invoiceSystem) return 'Select an invoicing model (point 8).';
+      if (!/^\d{1,12}$/.test(acct)) return 'Account number must be 1–12 digits only (point 9).';
+      if (!formData.invoiceSystem) return 'Select an invoicing model (point 10).';
       if (formData.invoiceSystem === INVOICE_SYSTEM.AUTH) {
         if (!formData.eInvoiceIssuerName?.trim()) {
-          return 'Enter your full legal name as on government-issued ID (point 9).';
+          return 'Enter your full legal name as on government-issued ID (point 11).';
+        }
+        if (!formData.authPrimaryUserAddress?.trim()) {
+          return 'Enter your address (point 11).';
         }
         if (!formData.authSoleSignatoryConfirmed) {
-          return 'Confirm you are the only authorized signatory (point 9).';
+          return 'Confirm you are the only authorized signatory (point 11).';
         }
       }
       if (formData.invoiceSystem === INVOICE_SYSTEM.MC) {
+        if (!formData.mcPrimaryUserFullLegalName?.trim()) {
+          return 'Enter your full legal name as on government-issued ID (point 11).';
+        }
+        if (!formData.mcPrimaryUserAddress?.trim()) return 'Enter your address (point 11).';
+        if (
+          formData.userTransactionRole !== TRANSACTION_ROLE.MAKER
+          && formData.userTransactionRole !== TRANSACTION_ROLE.CHECKER
+          && formData.userTransactionRole !== TRANSACTION_ROLE.ADMIN
+        ) {
+          return 'Select your role: Admin, Maker, or Checker (point 12).';
+        }
         const ownerEmail = (currentUser?.email || '').trim().toLowerCase();
         const seen = new Set();
         for (let i = 0; i < mcInvitees.length; i++) {
           const row = mcInvitees[i];
           const em = (row.email || '').trim().toLowerCase();
-          if (!em) return `Enter an email for invited teammate ${i + 1} (point 9).`;
-          if (!EMAIL_RE.test(em)) return `Invalid email for invited teammate ${i + 1}.`;
+          const label = `teammate ${i + 1}`;
+          if (!em) return `Enter the work email for ${label} (point 13).`;
+          if (!EMAIL_RE.test(em)) return `Invalid email for ${label} (point 13).`;
           if (em === ownerEmail) return 'Invited emails cannot include your own sign-in email.';
-          if (seen.has(em)) return 'Each invited email must be unique.';
+          if (seen.has(em)) return 'The two invite emails must be different.';
           seen.add(em);
-          if (row.role !== 'maker' && row.role !== 'checker') return 'Choose Maker or Checker for each invite.';
+          if (row.role !== 'maker' && row.role !== 'checker') {
+            return 'Each invited teammate must be assigned sign-up role Maker or Checker (point 13).';
+          }
         }
-      }
-      return '';
-    }
-    if (step === 3) {
-      if (formData.invoiceSystem === INVOICE_SYSTEM.MC) {
-        if (
-          formData.userTransactionRole !== TRANSACTION_ROLE.MAKER
-          && formData.userTransactionRole !== TRANSACTION_ROLE.CHECKER
-        ) {
-          return 'Select your role: Maker or Checker (point 10).';
+        const roles = mcInvitees.map((r) => r.role);
+        const makers = roles.filter((x) => x === 'maker').length;
+        const checkers = roles.filter((x) => x === 'checker').length;
+        if (makers !== 1 || checkers !== 1) {
+          return 'Assign exactly one invited Maker and one invited Checker between the two teammates (point 13).';
         }
-        const allRoles = [formData.userTransactionRole, ...mcInvitees.map((r) => r.role)];
-        if (!allRoles.includes('maker') || !allRoles.includes('checker')) {
-          return 'There must be at least one Maker and one Checker among you and your invited teammates.';
-        }
-        if (!formData.mcPrimaryUserFullLegalName?.trim()) {
-          return 'Enter your full legal name as on government-issued ID (point 11).';
-        }
-        if (!formData.mcPrimaryUserAddress?.trim()) return 'Enter your address (point 11).';
       }
       const digitsPhone = formData.phone.replace(/\D/g, '');
       if (digitsPhone.length < 10) return 'Cell number must be at least 10 digits (point 11).';
       return '';
     }
-    if (step === 4) {
+    if (step === 3) {
       if (!formData.userTransactionRole) return 'Complete the previous step (your role / permissions).';
-      if (!formData.governmentPhotoIdUrl) return 'Upload your government-issued photo ID (point 12).';
-      if (!formData.proofOfAddressUrl) return 'Upload proof of address (point 13).';
+      if (countVerificationUploads() < 1) return 'Upload one business verification document (point 5).';
+      if (!formData.governmentPhotoIdUrl) return 'Upload your government-issued photo ID (point 6).';
+      if (!formData.proofOfAddressUrl) return 'Upload proof of address (point 7).';
       if (!formData.roleAcknowledgement) return 'Confirm the acknowledgement (point 14).';
       return '';
     }
@@ -394,13 +405,15 @@ function CompanySetup() {
           invoiceSystem: value,
           userTransactionRole: TRANSACTION_ROLE.AUTH,
           authSoleSignatoryConfirmed: false,
+          authPrimaryUserAddress: '',
           mcPrimaryUserFullLegalName: '',
           mcPrimaryUserAddress: '',
         };
       }
       const keep =
         p.userTransactionRole === TRANSACTION_ROLE.MAKER ||
-        p.userTransactionRole === TRANSACTION_ROLE.CHECKER;
+        p.userTransactionRole === TRANSACTION_ROLE.CHECKER ||
+        p.userTransactionRole === TRANSACTION_ROLE.ADMIN;
       return {
         ...p,
         invoiceSystem: value,
@@ -410,20 +423,12 @@ function CompanySetup() {
       };
     });
     if (value === INVOICE_SYSTEM.MC) {
-      setMcInviteeCount(1);
-      setMcInvitees([{ email: '', role: 'maker' }]);
+      setMcInvitees([
+        { email: '', role: 'maker' },
+        { email: '', role: 'checker' },
+      ]);
     }
     setError('');
-  };
-
-  const onMcInviteeCountChange = (raw) => {
-    const count = Math.min(5, Math.max(1, Number(raw) || 1));
-    setMcInviteeCount(count);
-    setMcInvitees((rows) => {
-      const next = rows.slice(0, count);
-      while (next.length < count) next.push({ email: '', role: 'maker' });
-      return next;
-    });
   };
 
   const setMcInviteRow = (index, patch) => {
@@ -520,7 +525,7 @@ function CompanySetup() {
         bankAccountNumber: formData.bankAccountNumber.replace(/\s/g, ''),
         bnNumber: formData.bnNumber.replace(/\D/g, ''),
         gstNumber: formData.gstNumber.trim(),
-        mcInviteeCount: formData.invoiceSystem === INVOICE_SYSTEM.MC ? mcInviteeCount : 0,
+        mcInviteeCount: formData.invoiceSystem === INVOICE_SYSTEM.MC ? 2 : 0,
         mcInvitees: formData.invoiceSystem === INVOICE_SYSTEM.MC ? mcInvitees.map((r) => ({
           email: r.email.trim(),
           role: r.role,
@@ -530,6 +535,10 @@ function CompanySetup() {
         eInvoiceIssuerName:
           formData.invoiceSystem === INVOICE_SYSTEM.AUTH
             ? formData.eInvoiceIssuerName.trim()
+            : '',
+        authPrimaryUserAddress:
+          formData.invoiceSystem === INVOICE_SYSTEM.AUTH
+            ? formData.authPrimaryUserAddress.trim()
             : '',
         companyAddress: formData.companyAddress.trim(),
         mcPrimaryUserFullLegalName:
@@ -546,6 +555,7 @@ function CompanySetup() {
 
       const result = await saveCompanyInfo(payload);
       if (result.success) {
+        await refreshUserData();
         if (formData.invoiceSystem === INVOICE_SYSTEM.MC && currentUser?.uid) {
           const companyLabel = payload.legalBusinessName || 'your organization';
           const toInvite = mcInvitees.filter((row) => row.email?.trim());
@@ -553,7 +563,8 @@ function CompanySetup() {
             toInvite.map(async (row) => {
               const to = row.email.trim();
               const link = `${window.location.origin}/register?email=${encodeURIComponent(to)}&org=${encodeURIComponent(currentUser.uid)}&teamRole=${encodeURIComponent(row.role)}`;
-              const roleLabel = row.role === 'maker' ? 'Maker (issuer)' : 'Checker (approver)';
+              const roleLabel =
+                row.role === 'maker' ? 'Maker (issuer)' : 'Checker (approver)';
               const inviteRes = await sendEmail({
                 to,
                 subject: `Join ${companyLabel} — e-invoicing platform`,
@@ -599,7 +610,7 @@ function CompanySetup() {
             {isEditing ? 'Update Your Company Profile' : 'Company Profile Setup'}
           </h1>
           <p style={{ color: '#666', fontSize: '15px' }}>
-            Work through the flow in order — a few numbered points per screen. Verification (points 4–6 area) needs any two of the listed documents.
+            Work through the flow in order. Step 2 covers your BN and optional HST/GST (points 4 and 8). On the last step you upload business verification, photo ID, and proof of address (points 5–7), then confirm the acknowledgement (14).
           </p>
         </div>
 
@@ -686,12 +697,272 @@ function CompanySetup() {
             </div>
           </Section>
 
-          <Section num={5} title="Business verification — upload at least two">
+          <Section num={8} title="HST/GST registration number (if applicable)">
+            <label style={labelStyle}>HST/GST registration number</label>
+            <div style={iconWrap}>
+              <Hash size={18} style={iconStyle} />
+              <input type="text" name="gstNumber" value={formData.gstNumber} onChange={handleChange} placeholder="e.g. 123456789 RT0001 — leave blank if not registered" style={inputStyle} />
+            </div>
+          </Section>
+          </>
+          )}
+
+          {wizardStep === 2 && (
+          <>
+          <Section num={9} title="Payment information (direct deposit)">
+            <p style={{ fontSize: '14px', color: '#555', marginTop: 0 }}>Canadian clearing account details for this company.</p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+              <div>
+                <label style={labelStyle}>Transit number * (5 digits)</label>
+                <input type="text" name="bankTransitNumber" value={formData.bankTransitNumber} onChange={handleChange} required inputMode="numeric" maxLength={5} placeholder="00000" style={{ ...inputStyle, paddingLeft: '12px' }} />
+              </div>
+              <div>
+                <label style={labelStyle}>Institution number * (3 digits)</label>
+                <input type="text" name="bankInstitutionNumber" value={formData.bankInstitutionNumber} onChange={handleChange} required inputMode="numeric" maxLength={3} placeholder="000" style={{ ...inputStyle, paddingLeft: '12px' }} />
+              </div>
+            </div>
+            <div>
+              <label style={labelStyle}>Account number * (up to 12 digits)</label>
+              <input type="text" name="bankAccountNumber" value={formData.bankAccountNumber} onChange={handleChange} required inputMode="numeric" maxLength={12} placeholder="Account number" style={{ ...inputStyle, paddingLeft: '12px' }} />
+            </div>
+          </Section>
+
+          <Section num={10} title="Invoicing model & permissions">
+            <p style={{ fontSize: '14px', color: '#555', marginTop: 0 }}>How will your organization use approvals? The permissions table below updates for your choice — only the roles that apply to this model are shown.</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', padding: '12px', border: formData.invoiceSystem === INVOICE_SYSTEM.AUTH ? '2px solid #667eea' : '1px solid #e0e0e0', borderRadius: '8px' }}>
+                <input type="radio" name="invoiceSystem" checked={formData.invoiceSystem === INVOICE_SYSTEM.AUTH} onChange={() => setInvoiceSystem(INVOICE_SYSTEM.AUTH)} />
+                <span><strong>Authorized signatory</strong> — One person creates and approves invoices.</span>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', padding: '12px', border: formData.invoiceSystem === INVOICE_SYSTEM.MC ? '2px solid #667eea' : '1px solid #e0e0e0', borderRadius: '8px' }}>
+                <input type="radio" name="invoiceSystem" checked={formData.invoiceSystem === INVOICE_SYSTEM.MC} onChange={() => setInvoiceSystem(INVOICE_SYSTEM.MC)} />
+                <span><strong>Maker–Checker</strong> — One person creates invoices; a separate person approves.</span>
+              </label>
+            </div>
+            <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '12px', color: '#333' }}>Permissions for your model</h3>
+            <PermissionsTableByModel invoiceSystem={formData.invoiceSystem} userTransactionRole={formData.userTransactionRole} />
+          </Section>
+
+          <Section
+            num={11}
+            title={
+              formData.invoiceSystem === INVOICE_SYSTEM.AUTH
+                ? 'Authorized signatory — identity & contact'
+                : formData.invoiceSystem === INVOICE_SYSTEM.MC
+                  ? 'Your identity & contact'
+                  : 'Your details'
+            }
+          >
+            {formData.invoiceSystem === INVOICE_SYSTEM.AUTH && (
+              <>
+                <p style={{ fontSize: '14px', color: '#555', marginTop: 0, marginBottom: '16px', lineHeight: 1.5 }}>
+                  Under the <strong>authorized signatory</strong> model, <strong>only one person</strong> may act on behalf of this company for e-invoicing — the account you are using now. No additional platform users are added.
+                </p>
+                <label style={labelStyle}>Full legal name as on government-issued ID *</label>
+                <input
+                  type="text"
+                  name="eInvoiceIssuerName"
+                  value={formData.eInvoiceIssuerName}
+                  onChange={handleChange}
+                  required
+                  placeholder="Exactly as shown on your government-issued ID"
+                  style={{ ...inputStyle, paddingLeft: '12px' }}
+                />
+                <div style={{ marginTop: '20px' }}>
+                  <label style={labelStyle}>Address *</label>
+                  <div style={iconWrap}>
+                    <MapPin size={18} style={{ ...iconStyle, top: '16px', transform: 'none' }} />
+                    <textarea
+                      name="authPrimaryUserAddress"
+                      value={formData.authPrimaryUserAddress}
+                      onChange={handleChange}
+                      required
+                      rows={3}
+                      placeholder="Residential or mailing address (street, city, province, postal code)"
+                      style={{ ...inputStyle, paddingLeft: '44px' }}
+                    />
+                  </div>
+                </div>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', marginTop: '20px' }}>
+                  <input
+                    type="checkbox"
+                    name="authSoleSignatoryConfirmed"
+                    checked={formData.authSoleSignatoryConfirmed}
+                    onChange={handleChange}
+                    style={{ marginTop: '4px' }}
+                  />
+                  <span style={{ fontSize: '14px', lineHeight: 1.5 }}>
+                    I confirm that I am the <strong>only</strong> authorized signatory and the sole person permitted to issue e-invoices for this company on this platform.
+                  </span>
+                </label>
+              </>
+            )}
+            {formData.invoiceSystem === INVOICE_SYSTEM.MC && (
+              <>
+                <p style={{ fontSize: '14px', color: '#555', marginTop: 0, marginBottom: '16px', lineHeight: 1.5 }}>
+                  Provide details for <strong>you</strong>, the person submitting this company setup.
+                </p>
+                <label style={labelStyle}>Full legal name as on government-issued ID *</label>
+                <input
+                  type="text"
+                  name="mcPrimaryUserFullLegalName"
+                  value={formData.mcPrimaryUserFullLegalName}
+                  onChange={handleChange}
+                  required
+                  placeholder="Exactly as shown on your government-issued ID"
+                  style={{ ...inputStyle, paddingLeft: '12px' }}
+                />
+                <div style={{ marginTop: '20px' }}>
+                  <label style={labelStyle}>Address *</label>
+                  <div style={iconWrap}>
+                    <MapPin size={18} style={{ ...iconStyle, top: '16px', transform: 'none' }} />
+                    <textarea
+                      name="mcPrimaryUserAddress"
+                      value={formData.mcPrimaryUserAddress}
+                      onChange={handleChange}
+                      required
+                      rows={3}
+                      placeholder="Residential or mailing address (street, city, province, postal code)"
+                      style={{ ...inputStyle, paddingLeft: '44px' }}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+            {(formData.invoiceSystem === INVOICE_SYSTEM.AUTH || formData.invoiceSystem === INVOICE_SYSTEM.MC) && (
+              <>
+                <label style={{ ...labelStyle, marginTop: '20px' }}>Email</label>
+                <div style={iconWrap}>
+                  <Mail size={18} style={iconStyle} />
+                  <input type="email" value={formData.email} readOnly style={{ ...inputStyle, background: '#f5f5f5', color: '#555' }} />
+                </div>
+                <p style={{ fontSize: '13px', color: '#666', marginBottom: '16px' }}>Same as your sign-in email.</p>
+                <label style={labelStyle}>Cell number *</label>
+                <div style={iconWrap}>
+                  <Phone size={18} style={iconStyle} />
+                  <input type="tel" name="phone" value={formData.phone} onChange={handleChange} required placeholder="+1 (555) 123-4567" style={inputStyle} />
+                </div>
+              </>
+            )}
+            {!formData.invoiceSystem && (
+              <p style={{ fontSize: '14px', color: '#888', margin: 0 }}>Select an invoicing model in section 10 first.</p>
+            )}
+          </Section>
+
+          <Section num={12} title="Your role in this transaction">
+            {formData.invoiceSystem === INVOICE_SYSTEM.MC && (
+              <>
+                <p style={{ fontSize: '14px', color: '#555', marginTop: 0, marginBottom: '12px' }}>
+                  Choose whether <strong>you</strong> will be an Admin, Maker, or Checker (see section 10). In section 13 you invite exactly <strong>two</strong> teammates and assign each a sign-up role (one Maker, one Checker).
+                </p>
+                <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', flexDirection: 'column' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="userTransactionRole"
+                      checked={formData.userTransactionRole === TRANSACTION_ROLE.ADMIN}
+                      onChange={() => setFormData((p) => ({ ...p, userTransactionRole: TRANSACTION_ROLE.ADMIN }))}
+                    />
+                    Admin (full permissions and user management)
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="userTransactionRole"
+                      checked={formData.userTransactionRole === TRANSACTION_ROLE.MAKER}
+                      onChange={() => {
+                        setFormData((p) => ({ ...p, userTransactionRole: TRANSACTION_ROLE.MAKER }));
+                        setMcInvitees((rows) => [
+                          { email: rows[0]?.email || '', role: 'maker' },
+                          { email: rows[1]?.email || '', role: 'checker' },
+                        ]);
+                      }}
+                    />
+                    Maker (issuer)
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="userTransactionRole"
+                      checked={formData.userTransactionRole === TRANSACTION_ROLE.CHECKER}
+                      onChange={() => {
+                        setFormData((p) => ({ ...p, userTransactionRole: TRANSACTION_ROLE.CHECKER }));
+                        setMcInvitees((rows) => [
+                          { email: rows[0]?.email || '', role: 'maker' },
+                          { email: rows[1]?.email || '', role: 'checker' },
+                        ]);
+                      }}
+                    />
+                    Checker (approver)
+                  </label>
+                </div>
+              </>
+            )}
+            {formData.invoiceSystem === INVOICE_SYSTEM.AUTH && (
+              <div style={{ padding: '16px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: '8px' }}>
+                <p style={{ fontSize: '14px', color: '#14532d', margin: 0, lineHeight: 1.5 }}>
+                  <strong>Single-user model.</strong> Only you may use this company account on the platform. Your role is <strong>authorized signatory</strong> (all permissions in section 10 apply to you). No teammate invitations are used for this model.
+                </p>
+              </div>
+            )}
+            {!formData.invoiceSystem && (
+              <p style={{ fontSize: '14px', color: '#888', margin: 0 }}>Select an invoicing model in section 10 first.</p>
+            )}
+          </Section>
+
+          {formData.invoiceSystem === INVOICE_SYSTEM.MC && (
+            <Section num={13} title="Invite two teammates — one Maker, one Checker">
+              <p style={{ fontSize: '14px', color: '#555', marginTop: 0, marginBottom: '16px', lineHeight: 1.5 }}>
+                Enter a work email for each person and choose their <strong>sign-up role</strong> (Maker or Checker). You must assign exactly one Maker and one Checker between the two invites. Each person receives a sign-up link for the role you set.
+              </p>
+              {mcInvitees.map((row, index) => (
+                <div
+                  key={`mc-invite-${index}`}
+                  style={{
+                    marginTop: index === 0 ? 0 : '20px',
+                    padding: '16px',
+                    background: '#f8f9fa',
+                    borderRadius: '8px',
+                    border: '1px solid #e8e8e8',
+                  }}
+                >
+                  <div style={{ fontWeight: '600', marginBottom: '12px', fontSize: '14px' }}>
+                    {`Teammate ${index + 1}`}
+                  </div>
+                  <div style={{ marginBottom: '12px' }}>
+                    <label style={labelStyle}>Sign-up role *</label>
+                    <select
+                      value={row.role}
+                      onChange={(e) => setMcInviteRow(index, { role: e.target.value })}
+                      style={{ ...inputStyle, paddingLeft: '12px' }}
+                    >
+                      <option value="maker">Maker (issuer)</option>
+                      <option value="checker">Checker (approver)</option>
+                    </select>
+                  </div>
+                  <label style={labelStyle}>Work email *</label>
+                  <input
+                    type="email"
+                    value={row.email}
+                    onChange={(e) => setMcInviteRow(index, { email: e.target.value })}
+                    placeholder="colleague@company.com"
+                    style={{ ...inputStyle, paddingLeft: '12px' }}
+                  />
+                </div>
+              ))}
+            </Section>
+          )}
+          </>
+          )}
+
+          {wizardStep === 3 && (
+          <>
+          <Section num={5} title="Business verification — upload one document">
             <p style={{ fontSize: '14px', color: '#555', marginTop: 0, marginBottom: '16px' }}>
-              Choose a document type, then upload that file. Repeat until at least <strong>two</strong> document types are provided (image or PDF, max 10MB each).
+              Choose a document type, then upload <strong>one</strong> file (image or PDF, max 10MB). The file URL is saved to your company record in Firebase.
             </p>
-            <p style={{ fontSize: '13px', color: countVerificationUploads() >= 2 ? '#0d9488' : '#b45309', marginBottom: '16px', fontWeight: '600' }}>
-              Document types completed: {countVerificationUploads()} / 5 (minimum 2 required)
+            <p style={{ fontSize: '13px', color: countVerificationUploads() >= 1 ? '#0d9488' : '#b45309', marginBottom: '16px', fontWeight: '600' }}>
+              Verification document: {countVerificationUploads() >= 1 ? 'provided' : 'required (1)'}
             </p>
             <div style={{ marginBottom: '16px' }}>
               <label style={labelStyle}>Document type *</label>
@@ -741,233 +1012,7 @@ function CompanySetup() {
             )}
           </Section>
 
-          <Section num={6} title="HST/GST registration number (if applicable)">
-            <label style={labelStyle}>HST/GST registration number</label>
-            <div style={iconWrap}>
-              <Hash size={18} style={iconStyle} />
-              <input type="text" name="gstNumber" value={formData.gstNumber} onChange={handleChange} placeholder="e.g. 123456789 RT0001 — leave blank if not registered" style={inputStyle} />
-            </div>
-          </Section>
-          </>
-          )}
-
-          {wizardStep === 2 && (
-          <>
-          <Section num={7} title="Payment information (direct deposit)">
-            <p style={{ fontSize: '14px', color: '#555', marginTop: 0 }}>Canadian clearing account details for this company.</p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-              <div>
-                <label style={labelStyle}>Transit number * (5 digits)</label>
-                <input type="text" name="bankTransitNumber" value={formData.bankTransitNumber} onChange={handleChange} required inputMode="numeric" maxLength={5} placeholder="00000" style={{ ...inputStyle, paddingLeft: '12px' }} />
-              </div>
-              <div>
-                <label style={labelStyle}>Institution number * (3 digits)</label>
-                <input type="text" name="bankInstitutionNumber" value={formData.bankInstitutionNumber} onChange={handleChange} required inputMode="numeric" maxLength={3} placeholder="000" style={{ ...inputStyle, paddingLeft: '12px' }} />
-              </div>
-            </div>
-            <div>
-              <label style={labelStyle}>Account number * (up to 12 digits)</label>
-              <input type="text" name="bankAccountNumber" value={formData.bankAccountNumber} onChange={handleChange} required inputMode="numeric" maxLength={12} placeholder="Account number" style={{ ...inputStyle, paddingLeft: '12px' }} />
-            </div>
-          </Section>
-
-          <Section num={8} title="Invoicing model & permissions">
-            <p style={{ fontSize: '14px', color: '#555', marginTop: 0 }}>How will your organization use approvals? The permissions table below updates for your choice — only the roles that apply to this model are shown.</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
-              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', padding: '12px', border: formData.invoiceSystem === INVOICE_SYSTEM.AUTH ? '2px solid #667eea' : '1px solid #e0e0e0', borderRadius: '8px' }}>
-                <input type="radio" name="invoiceSystem" checked={formData.invoiceSystem === INVOICE_SYSTEM.AUTH} onChange={() => setInvoiceSystem(INVOICE_SYSTEM.AUTH)} />
-                <span><strong>Authorized signatory</strong> — One person creates and approves invoices.</span>
-              </label>
-              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', padding: '12px', border: formData.invoiceSystem === INVOICE_SYSTEM.MC ? '2px solid #667eea' : '1px solid #e0e0e0', borderRadius: '8px' }}>
-                <input type="radio" name="invoiceSystem" checked={formData.invoiceSystem === INVOICE_SYSTEM.MC} onChange={() => setInvoiceSystem(INVOICE_SYSTEM.MC)} />
-                <span><strong>Maker–Checker</strong> — One person creates invoices; a separate person approves.</span>
-              </label>
-            </div>
-            <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '12px', color: '#333' }}>Permissions for your model</h3>
-            <PermissionsTableByModel invoiceSystem={formData.invoiceSystem} userTransactionRole={formData.userTransactionRole} />
-          </Section>
-
-          <Section num={9} title={formData.invoiceSystem === INVOICE_SYSTEM.AUTH ? 'Authorized signatory (sole user)' : 'Invite teammates (Maker–Checker)'}>
-            {formData.invoiceSystem === INVOICE_SYSTEM.AUTH && (
-              <>
-                <p style={{ fontSize: '14px', color: '#555', marginTop: 0, marginBottom: '16px', lineHeight: 1.5 }}>
-                  Under the <strong>authorized signatory</strong> model, <strong>only one person</strong> may act on behalf of this company for e-invoicing — the account you are using now. No additional platform users are added.
-                </p>
-                <label style={labelStyle}>Full legal name as on government-issued ID *</label>
-                <input
-                  type="text"
-                  name="eInvoiceIssuerName"
-                  value={formData.eInvoiceIssuerName}
-                  onChange={handleChange}
-                  required
-                  placeholder="Exactly as shown on your government-issued ID"
-                  style={{ ...inputStyle, paddingLeft: '12px' }}
-                />
-                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', marginTop: '20px' }}>
-                  <input
-                    type="checkbox"
-                    name="authSoleSignatoryConfirmed"
-                    checked={formData.authSoleSignatoryConfirmed}
-                    onChange={handleChange}
-                    style={{ marginTop: '4px' }}
-                  />
-                  <span style={{ fontSize: '14px', lineHeight: 1.5 }}>
-                    I confirm that I am the <strong>only</strong> authorized signatory and the sole person permitted to issue e-invoices for this company on this platform.
-                  </span>
-                </label>
-              </>
-            )}
-            {formData.invoiceSystem === INVOICE_SYSTEM.MC && (
-              <>
-                <p style={{ fontSize: '14px', color: '#555', marginTop: 0, marginBottom: '16px', lineHeight: 1.5 }}>
-                  Choose how many people (up to <strong>five</strong>) you are adding besides yourself. For each person, enter their work email and whether they will be a <strong>Maker</strong> or <strong>Checker</strong>. When you save this profile, we send each person an onboarding email with a sign-up link.
-                </p>
-                <label style={labelStyle}>Number of people to invite *</label>
-                <select
-                  value={mcInviteeCount}
-                  onChange={(e) => onMcInviteeCountChange(e.target.value)}
-                  style={{ ...inputStyle, paddingLeft: '12px', maxWidth: '200px' }}
-                >
-                  {[1, 2, 3, 4, 5].map((n) => (
-                    <option key={n} value={n}>{n}</option>
-                  ))}
-                </select>
-                {mcInvitees.map((row, index) => (
-                  <div
-                    key={index}
-                    style={{
-                      marginTop: '20px',
-                      padding: '16px',
-                      background: '#f8f9fa',
-                      borderRadius: '8px',
-                      border: '1px solid #e8e8e8',
-                    }}
-                  >
-                    <div style={{ fontWeight: '600', marginBottom: '12px', fontSize: '14px' }}>Teammate {index + 1}</div>
-                    <div style={{ marginBottom: '12px' }}>
-                      <label style={labelStyle}>Email *</label>
-                      <input
-                        type="email"
-                        value={row.email}
-                        onChange={(e) => setMcInviteRow(index, { email: e.target.value })}
-                        placeholder="colleague@company.com"
-                        style={{ ...inputStyle, paddingLeft: '12px' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={labelStyle}>Role *</label>
-                      <select
-                        value={row.role}
-                        onChange={(e) => setMcInviteRow(index, { role: e.target.value })}
-                        style={{ ...inputStyle, paddingLeft: '12px' }}
-                      >
-                        <option value="maker">Maker (issuer)</option>
-                        <option value="checker">Checker (approver)</option>
-                      </select>
-                    </div>
-                  </div>
-                ))}
-              </>
-            )}
-            {!formData.invoiceSystem && (
-              <p style={{ fontSize: '14px', color: '#888', margin: 0 }}>Select an invoicing model in section 8 first.</p>
-            )}
-          </Section>
-          </>
-          )}
-
-          {wizardStep === 3 && (
-          <>
-          <Section num={10} title="Your role in this transaction">
-            {formData.invoiceSystem === INVOICE_SYSTEM.MC && (
-              <>
-                <p style={{ fontSize: '14px', color: '#555', marginTop: 0, marginBottom: '12px' }}>
-                  You are the first account completing company setup. Choose whether <strong>you</strong> will be a Maker or a Checker (see permissions in section 8). Together with your invited teammates, the organization must include at least one Maker and one Checker.
-                </p>
-                <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                    <input type="radio" name="userTransactionRole" checked={formData.userTransactionRole === TRANSACTION_ROLE.MAKER} onChange={() => setFormData((p) => ({ ...p, userTransactionRole: TRANSACTION_ROLE.MAKER }))} />
-                    Maker (issuer)
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                    <input type="radio" name="userTransactionRole" checked={formData.userTransactionRole === TRANSACTION_ROLE.CHECKER} onChange={() => setFormData((p) => ({ ...p, userTransactionRole: TRANSACTION_ROLE.CHECKER }))} />
-                    Checker (approver)
-                  </label>
-                </div>
-              </>
-            )}
-            {formData.invoiceSystem === INVOICE_SYSTEM.AUTH && (
-              <div style={{ padding: '16px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: '8px' }}>
-                <p style={{ fontSize: '14px', color: '#14532d', margin: 0, lineHeight: 1.5 }}>
-                  <strong>Single-user model.</strong> Only you may use this company account on the platform. Your role is <strong>authorized signatory</strong> (all permissions in section 8 apply to you). No teammate invitations are used for this model.
-                </p>
-              </div>
-            )}
-            {!formData.invoiceSystem && (
-              <p style={{ fontSize: '14px', color: '#888', margin: 0 }}>Select an invoicing model in section 8 first.</p>
-            )}
-          </Section>
-
-          <Section
-            num={11}
-            title={
-              formData.invoiceSystem === INVOICE_SYSTEM.MC
-                ? 'Person completing this form — identity & contact'
-                : 'Contact details'
-            }
-          >
-            {formData.invoiceSystem === INVOICE_SYSTEM.MC && (
-              <p style={{ fontSize: '14px', color: '#555', marginTop: 0, marginBottom: '16px', lineHeight: 1.5 }}>
-                Provide details for <strong>you</strong>, the person submitting this company setup (Maker–Checker model).
-              </p>
-            )}
-            {formData.invoiceSystem === INVOICE_SYSTEM.MC && (
-              <>
-                <label style={labelStyle}>Full legal name as on government-issued ID *</label>
-                <input
-                  type="text"
-                  name="mcPrimaryUserFullLegalName"
-                  value={formData.mcPrimaryUserFullLegalName}
-                  onChange={handleChange}
-                  required
-                  placeholder="Exactly as shown on your government-issued ID"
-                  style={{ ...inputStyle, paddingLeft: '12px' }}
-                />
-                <div style={{ marginTop: '20px' }}>
-                  <label style={labelStyle}>Address *</label>
-                  <div style={iconWrap}>
-                    <MapPin size={18} style={{ ...iconStyle, top: '16px', transform: 'none' }} />
-                    <textarea
-                      name="mcPrimaryUserAddress"
-                      value={formData.mcPrimaryUserAddress}
-                      onChange={handleChange}
-                      required
-                      rows={3}
-                      placeholder="Residential or mailing address (street, city, province, postal code)"
-                      style={{ ...inputStyle, paddingLeft: '44px' }}
-                    />
-                  </div>
-                </div>
-              </>
-            )}
-            <label style={{ ...labelStyle, marginTop: formData.invoiceSystem === INVOICE_SYSTEM.MC ? '20px' : 0 }}>Email</label>
-            <div style={iconWrap}>
-              <Mail size={18} style={iconStyle} />
-              <input type="email" value={formData.email} readOnly style={{ ...inputStyle, background: '#f5f5f5', color: '#555' }} />
-            </div>
-            <p style={{ fontSize: '13px', color: '#666', marginBottom: '16px' }}>Same as your sign-in email.</p>
-            <label style={labelStyle}>Cell number *</label>
-            <div style={iconWrap}>
-              <Phone size={18} style={iconStyle} />
-              <input type="tel" name="phone" value={formData.phone} onChange={handleChange} required placeholder="+1 (555) 123-4567" style={inputStyle} />
-            </div>
-          </Section>
-          </>
-          )}
-
-          {wizardStep === 4 && (
-          <>
-          <Section num={12} title="Government-issued photo ID">
+          <Section num={6} title="Government-issued photo ID">
             <p style={{ fontSize: '14px', color: '#555', marginTop: 0 }}>
               Upload a clear copy of <strong>photo identification</strong> issued by a government (e.g. driver’s licence, passport) — image or PDF, max 10MB.
             </p>
@@ -989,7 +1034,7 @@ function CompanySetup() {
             )}
           </Section>
 
-          <Section num={13} title="Proof of address">
+          <Section num={7} title="Proof of address">
             <p style={{ fontSize: '14px', color: '#555', marginTop: 0 }}>
               Upload a document showing your <strong>current address</strong> (e.g. utility bill, bank statement, lease — image or PDF, max 10MB).
             </p>
@@ -1020,8 +1065,8 @@ function CompanySetup() {
             ) : (
               <p style={{ fontSize: '14px', color: '#888', margin: 0 }}>
                 {!formData.invoiceSystem
-                  ? 'Select an invoicing model in section 8 first.'
-                  : 'Select your role (Maker or Checker) in section 10.'}
+                  ? 'Select an invoicing model in section 10 first.'
+                  : 'Select your role (Admin, Maker, or Checker) in section 12.'}
               </p>
             )}
           </Section>

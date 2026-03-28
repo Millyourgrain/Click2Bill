@@ -1,5 +1,5 @@
 # Cloudflare Worker with static assets
-name = "clicktobill"
+name = "click2bill"
 compatibility_date = "2024-01-01"
 main = "worker.js"
 

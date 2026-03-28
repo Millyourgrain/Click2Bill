@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
-import { LogOut, Building, FileText, TrendingUp, Users, Calendar, DollarSign, MapPin, Download } from 'lucide-react';
+import { LogOut, Building, FileText, TrendingUp, Users, DollarSign, MapPin, Download } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { logoutUser } from '../../services/authService';
 import { getCompanyInfo } from '../../services/companyService';
@@ -219,32 +219,27 @@ function Dashboard() {
         </div>
 
         <div style={{ background: 'white', borderRadius: '12px', padding: '32px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', marginBottom: '24px' }}>
-          <h2 style={{ fontSize: '20px', fontWeight: '700', margin: '0 0 24px 0' }}>Quick Actions</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
+          <h2 style={{ fontSize: '20px', fontWeight: '700', margin: '0 0 24px 0' }}>Main actions</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
             <button onClick={() => navigate('/invoice')} style={{ padding: '20px', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', textAlign: 'left' }}>
               <FileText size={24} style={{ marginBottom: '8px' }} />
-              <p style={{ fontWeight: '600', margin: '0 0 4px 0' }}>Create Invoice</p>
+              <p style={{ fontWeight: '600', margin: '0 0 4px 0' }}>Create invoice</p>
               <p style={{ fontSize: '13px', opacity: 0.9, margin: 0 }}>Prepare and send invoice</p>
             </button>
-            <button onClick={() => navigate('/customers')} style={{ padding: '20px', background: '#2196f3', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', textAlign: 'left' }}>
+            <button onClick={() => navigate('/customers/new')} style={{ padding: '20px', background: '#2196f3', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', textAlign: 'left' }}>
               <Users size={24} style={{ marginBottom: '8px' }} />
-              <p style={{ fontWeight: '600', margin: '0 0 4px 0' }}>Customers</p>
-              <p style={{ fontSize: '13px', opacity: 0.9, margin: 0 }}>View customer / patient list</p>
-            </button>
-            <button onClick={() => navigate('/schedule')} style={{ padding: '20px', background: '#4caf50', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', textAlign: 'left' }}>
-              <Calendar size={24} style={{ marginBottom: '8px' }} />
-              <p style={{ fontWeight: '600', margin: '0 0 4px 0' }}>Schedule service</p>
-              <p style={{ fontSize: '13px', opacity: 0.9, margin: 0 }}>Check-in / check-out</p>
+              <p style={{ fontWeight: '600', margin: '0 0 4px 0' }}>Customer</p>
+              <p style={{ fontSize: '13px', opacity: 0.9, margin: 0 }}>Add customer details</p>
             </button>
             <button onClick={() => navigate('/travel')} style={{ padding: '20px', background: '#ff9800', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', textAlign: 'left' }}>
-              <TrendingUp size={24} style={{ marginBottom: '8px' }} />
-              <p style={{ fontWeight: '600', margin: '0 0 4px 0' }}>Travel</p>
-              <p style={{ fontSize: '13px', opacity: 0.9, margin: 0 }}>Travel cost & distance</p>
+              <MapPin size={24} style={{ marginBottom: '8px' }} />
+              <p style={{ fontWeight: '600', margin: '0 0 4px 0' }}>Travel cost & distance</p>
+              <p style={{ fontSize: '13px', opacity: 0.9, margin: 0 }}>Log trips and travel costs</p>
             </button>
             <button onClick={() => navigate('/setup-company')} style={{ padding: '20px', background: '#9c27b0', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', textAlign: 'left' }}>
               <Building size={24} style={{ marginBottom: '8px' }} />
-              <p style={{ fontWeight: '600', margin: '0 0 4px 0' }}>Profile</p>
-              <p style={{ fontSize: '13px', opacity: 0.9, margin: 0 }}>Worker / business profile</p>
+              <p style={{ fontWeight: '600', margin: '0 0 4px 0' }}>Business profile</p>
+              <p style={{ fontSize: '13px', opacity: 0.9, margin: 0 }}>Company information & verification</p>
             </button>
           </div>
         </div>
@@ -366,12 +361,6 @@ function Dashboard() {
             </div>
           )}
           <button onClick={() => navigate('/travel')} style={{ marginTop: '12px', fontSize: '14px', color: '#667eea', background: 'none', border: 'none', cursor: 'pointer', fontWeight: '500' }}>Go to Travel →</button>
-        </div>
-
-        <div style={{ background: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-          <h2 style={{ fontSize: '18px', fontWeight: '700', margin: '0 0 16px 0' }}>Customer feedback</h2>
-          <p style={{ color: '#666', fontSize: '14px', margin: 0 }}>Feedback on customer relationship and reviews can be managed from the Customers section.</p>
-          <button onClick={() => navigate('/customers')} style={{ marginTop: '12px', padding: '8px 16px', background: '#e3f2fd', color: '#1976d2', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '500' }}>Go to Customers</button>
         </div>
 
         {companyInfo && (

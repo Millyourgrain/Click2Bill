@@ -791,7 +791,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
             )}
             <div className="form-grid-2">
               <div className="form-group">
-                <label className="form-label">Customer / Patient Name *</label>
+                <label className="form-label">Customer name *</label>
                 <input type="text" value={invoice.customerName} onChange={(e) => setInvoice({ ...invoice, customerName: e.target.value })} className="form-input" />
               </div>
               <div className="form-group">
@@ -804,7 +804,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
               <textarea value={invoice.serviceAddress} onChange={(e) => setInvoice({ ...invoice, serviceAddress: e.target.value })} rows={2} className="form-textarea" />
             </div>
             <div style={{ marginTop: '16px', padding: '16px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-              <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '12px', color: '#555' }}>Payor (if different from customer/patient)</div>
+              <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '12px', color: '#555' }}>Payor (if different from customer)</div>
               <div className="form-grid-2">
                 <div className="form-group">
                   <label className="form-label">Payor Name</label>

@@ -13,8 +13,8 @@ function CustomerProfileSetup() {
   const navigate = useNavigate();
   const { refreshUserData } = useAuth();
   const [formData, setFormData] = useState({
-    customerPatientName: '',
-    customerPatientDob: '',
+    customerName: '',
+    customerDob: '',
     serviceAddress: '',
     contactEmail: '',
     contactPhone: '',
@@ -24,7 +24,7 @@ function CustomerProfileSetup() {
     payorEmail: '',
     payorPhone: '',
     sendServiceNotification: false,
-    relationshipWithPatient: '',
+    relationshipWithCustomer: '',
     typeOfServiceRequired: '',
     serviceFrequency: '',
     serviceAgreementInPlace: null,
@@ -54,7 +54,22 @@ function CustomerProfileSetup() {
 
   useEffect(() => {
     getCustomerProfile().then((r) => {
-      if (r.success && r.data) setFormData((prev) => ({ ...prev, ...r.data }));
+      if (r.success && r.data) {
+        const d = r.data;
+        const {
+          customerPatientName: _legacyName,
+          customerPatientDob: _legacyDob,
+          relationshipWithPatient: _legacyRel,
+          ...rest
+        } = d;
+        setFormData((prev) => ({
+          ...prev,
+          ...rest,
+          customerName: d.customerName ?? d.customerPatientName ?? '',
+          customerDob: d.customerDob ?? d.customerPatientDob ?? '',
+          relationshipWithCustomer: d.relationshipWithCustomer ?? d.relationshipWithPatient ?? '',
+        }));
+      }
     });
   }, []);
 
@@ -72,8 +87,8 @@ function CustomerProfileSetup() {
     if (field === 'isPayorSameAsCustomer' && value === true) {
       setFormData((prev) => ({
         ...prev,
-        payorName: prev.customerPatientName,
-        payorDob: prev.customerPatientDob,
+        payorName: prev.customerName,
+        payorDob: prev.customerDob,
         payorEmail: prev.contactEmail,
         payorPhone: prev.contactPhone,
       }));
@@ -111,7 +126,7 @@ function CustomerProfileSetup() {
     setError('');
     setSuccess('');
     if (formData.isPayorSameAsCustomer === false && !formData.payorEmail?.trim()) {
-      setError('Payor email is required when customer/patient and payor are different.');
+      setError('Payor email is required when customer and payor are different.');
       return;
     }
     setLoading(true);
@@ -155,15 +170,15 @@ function CustomerProfileSetup() {
         )}
 
         <form onSubmit={handleSubmit}>
-          {block('basic', 'Customer/patient & contact', (
+          {block('basic', 'Customer & contact', (
             <>
               <div style={{ marginBottom: '16px' }}>
-                <label style={label}>Customer/patient name *</label>
-                <input type="text" name="customerPatientName" value={formData.customerPatientName} onChange={handleChange} required style={input} />
+                <label style={label}>Customer name *</label>
+                <input type="text" name="customerName" value={formData.customerName} onChange={handleChange} required style={input} />
               </div>
               <div style={{ marginBottom: '16px' }}>
-                <label style={label}>Customer/patient DOB</label>
-                <input type="date" name="customerPatientDob" value={formData.customerPatientDob} onChange={handleChange} style={input} />
+                <label style={label}>Date of birth</label>
+                <input type="date" name="customerDob" value={formData.customerDob} onChange={handleChange} style={input} />
               </div>
               <div style={{ marginBottom: '16px' }}>
                 <label style={label}>Service address *</label>
@@ -180,7 +195,7 @@ function CustomerProfileSetup() {
                 </div>
               </div>
               <div style={{ marginBottom: '16px' }}>
-                <label style={label}>Is customer/patient and payor the same? *</label>
+                <label style={label}>Is customer and payor the same? *</label>
                 <div style={{ display: 'flex', gap: '16px' }}>
                   <label><input type="radio" checked={formData.isPayorSameAsCustomer === true} onChange={() => setYesNo('isPayorSameAsCustomer', true)} /> Yes</label>
                   <label><input type="radio" checked={formData.isPayorSameAsCustomer === false} onChange={() => setYesNo('isPayorSameAsCustomer', false)} /> No</label>
@@ -215,8 +230,8 @@ function CustomerProfileSetup() {
                 </label>
               </div>
               <div style={{ marginTop: '16px' }}>
-                <label style={label}>Relationship with customer/patient</label>
-                <input type="text" name="relationshipWithPatient" value={formData.relationshipWithPatient} onChange={handleChange} placeholder="e.g. Self, Spouse, Parent" style={input} />
+                <label style={label}>Relationship with customer</label>
+                <input type="text" name="relationshipWithCustomer" value={formData.relationshipWithCustomer} onChange={handleChange} placeholder="e.g. Self, Spouse, Parent" style={input} />
               </div>
             </>
           ))}

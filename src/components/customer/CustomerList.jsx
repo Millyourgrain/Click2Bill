@@ -61,7 +61,7 @@ function CustomerList() {
     <div style={{ minHeight: '100vh', background: '#f5f5f5', padding: '24px' }}>
       <div style={{ maxWidth: '900px', margin: '0 auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-          <h1 style={{ fontSize: '24px', fontWeight: '700', margin: 0 }}>Customers / patients</h1>
+          <h1 style={{ fontSize: '24px', fontWeight: '700', margin: 0 }}>Customers</h1>
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
             <button
               onClick={() => navigate('/dashboard')}

@@ -11,29 +11,27 @@ import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase/config';
 
 /**
- * Register a new user with company information
+ * Register a new company user (email + password). Name and company details are collected in company setup.
  */
 export const registerUser = async (userData) => {
   try {
-    const { email, password, companyName, fullName, phone } = userData;
-    
-    // Create authentication user
+    const { email, password, organizationOwnerId, teamRole } = userData;
+    const orgId = typeof organizationOwnerId === 'string' ? organizationOwnerId.trim() : '';
+    const roleFromInvite = teamRole === 'maker' || teamRole === 'checker' ? teamRole : '';
+    const isTeamMember = Boolean(orgId && roleFromInvite);
+
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
-    
-    // Update user profile with display name
-    await updateProfile(user, {
-      displayName: fullName
-    });
-    
-    // Create user document in Firestore
+
     await setDoc(doc(db, 'users', user.uid), {
       uid: user.uid,
       email: email,
-      fullName: fullName,
-      phone: phone || '',
-      companyName: companyName,
+      fullName: '',
+      phone: '',
+      companyName: '',
       role: 'worker', // worker | customer | admin
+      organizationOwnerId: isTeamMember ? orgId : '',
+      userTeamRole: isTeamMember ? roleFromInvite : '',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       isActive: true

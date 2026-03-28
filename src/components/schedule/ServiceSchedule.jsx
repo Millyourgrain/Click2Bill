@@ -161,7 +161,7 @@ function ServiceSchedule() {
             <LayoutDashboard size={18} /> Dashboard
           </button>
         </div>
-        <p style={{ color: '#666', fontSize: '14px', marginBottom: '24px' }}>Schedule visits for a date (default: today). Check in/out same day or add times manually. Notifications sent to patient and payor.</p>
+        <p style={{ color: '#666', fontSize: '14px', marginBottom: '24px' }}>Schedule visits for a date (default: today). Check in/out same day or add times manually. Notifications sent to the customer and payor.</p>
 
         {error && <div style={{ background: '#fee', color: '#c33', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>{error}</div>}
         {success && <div style={{ background: '#e8f5e9', color: '#2e7d32', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>{success}</div>}

@@ -5,7 +5,7 @@ import { db, storage, auth } from '../firebase/config';
 const COLLECTION = 'customerProfiles';
 
 /**
- * Save or update Customer/Payor profile (platform profile, not worker's customer record)
+ * Save or update customer / payor profile (platform profile, not worker's customer record)
  */
 export const saveCustomerProfile = async (data) => {
   try {

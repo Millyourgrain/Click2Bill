@@ -54,16 +54,22 @@ async function handleSendEmail(request, env) {
 
   const authHeader = request.headers.get('Authorization');
   const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-  if (!token || !env.FIREBASE_API_KEY) {
-    return new Response(JSON.stringify({ success: false, error: 'Unauthorized' }), {
+  if (!token) {
+    return new Response(JSON.stringify({ success: false, error: 'Missing Authorization token. Ensure you are logged in.' }), {
       status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+  if (!env.FIREBASE_API_KEY || env.FIREBASE_API_KEY === 'PASTE_YOUR_FIREBASE_API_KEY_HERE') {
+    return new Response(JSON.stringify({ success: false, error: 'FIREBASE_API_KEY not configured. Edit wrangler.toml and replace PASTE_YOUR_FIREBASE_API_KEY_HERE with your Firebase API key (same as VITE_FIREBASE_API_KEY from .env.production), then redeploy.' }), {
+      status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 
   const valid = await verifyFirebaseToken(token, env.FIREBASE_API_KEY);
   if (!valid) {
-    return new Response(JSON.stringify({ success: false, error: 'Invalid token' }), {
+    return new Response(JSON.stringify({ success: false, error: 'Invalid or expired token. Try logging out and back in.' }), {
       status: 401,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

@@ -14,7 +14,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage, auth } from '../firebase/config';
 
 /**
- * Add or update customer/patient profile (full PSW workflow)
+ * Add or update customer profile
  */
 export const addCustomer = async (customerData) => {
   try {
@@ -24,18 +24,14 @@ export const addCustomer = async (customerData) => {
     const customersRef = collection(db, 'customers');
     const payload = {
       userId: user.uid,
+      entityType: customerData.entityType || 'individual',
+      businessName: customerData.businessName || '',
       customerName: customerData.customerName || '',
-      customerDob: customerData.customerDob || '',
       serviceAddress: customerData.serviceAddress || '',
       customerEmail: customerData.customerEmail || '',
       customerPhone: customerData.customerPhone || '',
-      typeOfService: customerData.typeOfService || '',
-      frequencyOfService: customerData.frequencyOfService || '',
-      hasEngagementAgreement: customerData.hasEngagementAgreement ?? null,
-      engagementAgreementUrl: customerData.engagementAgreementUrl || '',
       isPayorSameAsCustomer: customerData.isPayorSameAsCustomer ?? null,
       payorName: customerData.payorName || '',
-      payorDob: customerData.payorDob || '',
       payorRelationship: customerData.payorRelationship || '',
       payorEmail: customerData.payorEmail || '',
       payorPhone: customerData.payorPhone || '',
@@ -175,6 +171,7 @@ export const searchCustomers = async (searchTerm) => {
     const filtered = result.data.filter(
       (c) =>
         (c.customerName && c.customerName.toLowerCase().includes(lower)) ||
+        (c.businessName && c.businessName.toLowerCase().includes(lower)) ||
         (c.customerEmail && c.customerEmail.toLowerCase().includes(lower)) ||
         (c.payorEmail && c.payorEmail.toLowerCase().includes(lower))
     );

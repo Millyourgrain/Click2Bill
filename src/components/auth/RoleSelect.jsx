@@ -1,16 +1,14 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, Building2, Users } from 'lucide-react';
+import { Building2 } from 'lucide-react';
 
 /**
- * Landing: User visits platform → Select Role (flowchart step).
- * Independent Worker | Organization/Agency → /register
- * Customer/Payor → /register-customer
+ * Landing: companies register here; invoice payors sign in via /login (or invite link to /register-customer).
  */
 function RoleSelect() {
   const navigate = useNavigate();
 
-  const cardStyle = (color) => ({
+  const cardStyle = {
     padding: '32px 24px',
     background: 'white',
     borderRadius: '16px',
@@ -19,7 +17,8 @@ function RoleSelect() {
     cursor: 'pointer',
     border: '3px solid transparent',
     transition: 'all 0.2s ease',
-  });
+    maxWidth: '420px',
+  };
 
   return (
     <div style={{
@@ -35,38 +34,16 @@ function RoleSelect() {
         E-Invoicing Platform
       </h1>
       <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: '16px', marginBottom: '40px', textAlign: 'center' }}>
-        Select your role to continue
+        Create invoices and manage your business in one place
       </p>
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '24px', justifyContent: 'center', maxWidth: '900px' }}>
+      <div style={{ display: 'flex', justifyContent: 'center' }}>
         <div
           role="button"
           tabIndex={0}
           onClick={() => navigate('/register')}
           onKeyDown={(e) => e.key === 'Enter' && navigate('/register')}
-          style={cardStyle()}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = '#667eea';
-            e.currentTarget.style.transform = 'translateY(-4px)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = 'transparent';
-            e.currentTarget.style.transform = 'translateY(0)';
-          }}
-        >
-          <div style={{ width: '64px', height: '64px', background: '#eef2ff', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-            <User size={32} color="#667eea" />
-          </div>
-          <h2 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '8px', color: '#1a1a1a' }}>Independent Worker</h2>
-          <p style={{ fontSize: '14px', color: '#666', margin: 0 }}>PSW, RPN, RN, or service provider. Register and complete your profile.</p>
-        </div>
-
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={() => navigate('/register?type=agency')}
-          onKeyDown={(e) => e.key === 'Enter' && navigate('/register?type=agency')}
-          style={cardStyle()}
+          style={cardStyle}
           onMouseEnter={(e) => {
             e.currentTarget.style.borderColor = '#0d9488';
             e.currentTarget.style.transform = 'translateY(-4px)';
@@ -79,35 +56,15 @@ function RoleSelect() {
           <div style={{ width: '64px', height: '64px', background: '#ccfbf1', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
             <Building2 size={32} color="#0d9488" />
           </div>
-          <h2 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '8px', color: '#1a1a1a' }}>Organization / Agency</h2>
-          <p style={{ fontSize: '14px', color: '#666', margin: 0 }}>Register your organization. Same registration as worker; identify as agency in profile.</p>
-        </div>
-
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={() => navigate('/register-customer')}
-          onKeyDown={(e) => e.key === 'Enter' && navigate('/register-customer')}
-          style={cardStyle()}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = '#f59e0b';
-            e.currentTarget.style.transform = 'translateY(-4px)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = 'transparent';
-            e.currentTarget.style.transform = 'translateY(0)';
-          }}
-        >
-          <div style={{ width: '64px', height: '64px', background: '#fef3c7', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-            <Users size={32} color="#f59e0b" />
-          </div>
-          <h2 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '8px', color: '#1a1a1a' }}>Customer / Payor</h2>
-          <p style={{ fontSize: '14px', color: '#666', margin: 0 }}>Receive and pay invoices. Sign up and complete your profile.</p>
+          <h2 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '8px', color: '#1a1a1a' }}>Register your company</h2>
+          <p style={{ fontSize: '14px', color: '#666', margin: 0 }}>Set up your company profile, customers, and invoicing.</p>
         </div>
       </div>
 
-      <p style={{ marginTop: '32px', color: 'rgba(255,255,255,0.8)', fontSize: '14px' }}>
-        Already have an account? <a href="/login" style={{ color: 'white', fontWeight: '600' }} onClick={(e) => { e.preventDefault(); navigate('/login'); }}>Sign in</a>
+      <p style={{ marginTop: '32px', color: 'rgba(255,255,255,0.85)', fontSize: '14px', textAlign: 'center' }}>
+        Already have an account?{' '}
+        <a href="/login" style={{ color: 'white', fontWeight: '600' }} onClick={(e) => { e.preventDefault(); navigate('/login'); }}>Sign in</a>
+        {' '}· Paying an invoice? Sign in with the email on your invoice.
       </p>
     </div>
   );

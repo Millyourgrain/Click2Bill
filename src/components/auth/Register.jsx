@@ -1,20 +1,30 @@
-import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { registerUser } from '../../services/authService';
-import { UserPlus, Mail, Lock, User, Building, Phone, AlertCircle, CheckCircle } from 'lucide-react';
+import { UserPlus, Mail, Lock, AlertCircle, CheckCircle } from 'lucide-react';
 
 function Register() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const orgId = searchParams.get('org')?.trim() || '';
+  const teamRoleParam = searchParams.get('teamRole')?.trim() || '';
+  const inviteEmail = searchParams.get('email')?.trim() || '';
+  const isTeamInvite =
+    Boolean(orgId) && (teamRoleParam === 'maker' || teamRoleParam === 'checker');
+
   const [formData, setFormData] = useState({
-    fullName: '',
     email: '',
     password: '',
     confirmPassword: '',
-    companyName: '',
-    phone: ''
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (inviteEmail) {
+      setFormData((f) => ({ ...f, email: inviteEmail }));
+    }
+  }, [inviteEmail]);
 
   const handleChange = (e) => {
     setFormData({
@@ -28,7 +38,11 @@ function Register() {
     e.preventDefault();
     setError('');
 
-    // Validation
+    if (isTeamInvite && formData.email.trim().toLowerCase() !== inviteEmail.toLowerCase()) {
+      setError('Use the same email address this invitation was sent to.');
+      return;
+    }
+
     if (formData.password !== formData.confirmPassword) {
       setError('Passwords do not match');
       return;
@@ -41,15 +55,34 @@ function Register() {
 
     setLoading(true);
 
-    const result = await registerUser(formData);
+    const result = await registerUser({
+      ...formData,
+      organizationOwnerId: isTeamInvite ? orgId : undefined,
+      teamRole: isTeamInvite ? teamRoleParam : undefined,
+    });
 
     if (result.success) {
-      // Redirect to company setup
-      navigate('/setup-company');
+      navigate(isTeamInvite ? '/dashboard' : '/setup-company');
     } else {
       setError(result.error);
       setLoading(false);
     }
+  };
+
+  const inputShell = {
+    width: '100%',
+    padding: '12px 12px 12px 40px',
+    border: '2px solid #e0e0e0',
+    borderRadius: '8px',
+    fontSize: '15px',
+  };
+
+  const labelStyle = {
+    display: 'block',
+    marginBottom: '8px',
+    fontWeight: '600',
+    fontSize: '14px',
+    color: '#333',
   };
 
   return (
@@ -67,9 +100,8 @@ function Register() {
         borderRadius: '16px',
         boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
         width: '100%',
-        maxWidth: '600px'
+        maxWidth: '450px'
       }}>
-        {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
           <div style={{
             width: '80px',
@@ -89,14 +121,15 @@ function Register() {
             marginBottom: '8px',
             color: '#1a1a1a'
           }}>
-            Create Your Account
+            {isTeamInvite ? 'Accept your team invite' : 'Create your account'}
           </h1>
           <p style={{ color: '#666', fontSize: '15px' }}>
-            Sign up for the e-invoicing platform (independent PSW / Service worker)
+            {isTeamInvite
+              ? `You’re joining as ${teamRoleParam === 'maker' ? 'a Maker (issuer)' : 'a Checker (approver)'}. Set a password for your invited email, then you’ll go to the dashboard.`
+              : 'Use your work email and a secure password. You’ll add company details next.'}
           </p>
         </div>
 
-        {/* Error Message */}
         {error && (
           <div style={{
             background: '#fee',
@@ -116,87 +149,8 @@ function Register() {
         )}
 
         <form onSubmit={handleSubmit}>
-          {/* Two Column Layout */}
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: '1fr 1fr', 
-            gap: '20px',
-            marginBottom: '20px'
-          }}>
-            {/* Full Name */}
-            <div>
-              <label style={{
-                display: 'block',
-                marginBottom: '8px',
-                fontWeight: '600',
-                fontSize: '14px',
-                color: '#333'
-              }}>
-                Full Name *
-              </label>
-              <div style={{ position: 'relative' }}>
-                <User size={18} style={{ position: 'absolute', left: '12px', top: '12px', color: '#999' }} />
-                <input
-                  type="text"
-                  name="fullName"
-                  value={formData.fullName}
-                  onChange={handleChange}
-                  required
-                  placeholder="John Doe"
-                  style={{
-                    width: '100%',
-                    padding: '12px 12px 12px 40px',
-                    border: '2px solid #e0e0e0',
-                    borderRadius: '8px',
-                    fontSize: '15px'
-                  }}
-                />
-              </div>
-            </div>
-
-            {/* Company Name */}
-            <div>
-              <label style={{
-                display: 'block',
-                marginBottom: '8px',
-                fontWeight: '600',
-                fontSize: '14px',
-                color: '#333'
-              }}>
-                Company Name *
-              </label>
-              <div style={{ position: 'relative' }}>
-                <Building size={18} style={{ position: 'absolute', left: '12px', top: '12px', color: '#999' }} />
-                <input
-                  type="text"
-                  name="companyName"
-                  value={formData.companyName}
-                  onChange={handleChange}
-                  required
-                  placeholder="ABC Corporation"
-                  style={{
-                    width: '100%',
-                    padding: '12px 12px 12px 40px',
-                    border: '2px solid #e0e0e0',
-                    borderRadius: '8px',
-                    fontSize: '15px'
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Email */}
           <div style={{ marginBottom: '20px' }}>
-            <label style={{
-              display: 'block',
-              marginBottom: '8px',
-              fontWeight: '600',
-              fontSize: '14px',
-              color: '#333'
-            }}>
-              Email Address *
-            </label>
+            <label style={labelStyle}>Email address *</label>
             <div style={{ position: 'relative' }}>
               <Mail size={18} style={{ position: 'absolute', left: '12px', top: '12px', color: '#999' }} />
               <input
@@ -205,119 +159,51 @@ function Register() {
                 value={formData.email}
                 onChange={handleChange}
                 required
+                autoComplete="email"
+                readOnly={Boolean(isTeamInvite && inviteEmail)}
                 placeholder="you@company.com"
                 style={{
-                  width: '100%',
-                  padding: '12px 12px 12px 40px',
-                  border: '2px solid #e0e0e0',
-                  borderRadius: '8px',
-                  fontSize: '15px'
+                  ...inputShell,
+                  ...(isTeamInvite && inviteEmail ? { background: '#f5f5f5', color: '#555' } : {}),
                 }}
               />
             </div>
           </div>
 
-          {/* Phone */}
           <div style={{ marginBottom: '20px' }}>
-            <label style={{
-              display: 'block',
-              marginBottom: '8px',
-              fontWeight: '600',
-              fontSize: '14px',
-              color: '#333'
-            }}>
-              Phone Number (Optional)
-            </label>
+            <label style={labelStyle}>Password *</label>
             <div style={{ position: 'relative' }}>
-              <Phone size={18} style={{ position: 'absolute', left: '12px', top: '12px', color: '#999' }} />
+              <Lock size={18} style={{ position: 'absolute', left: '12px', top: '12px', color: '#999' }} />
               <input
-                type="tel"
-                name="phone"
-                value={formData.phone}
+                type="password"
+                name="password"
+                value={formData.password}
                 onChange={handleChange}
-                placeholder="+1 (555) 123-4567"
-                style={{
-                  width: '100%',
-                  padding: '12px 12px 12px 40px',
-                  border: '2px solid #e0e0e0',
-                  borderRadius: '8px',
-                  fontSize: '15px'
-                }}
+                required
+                autoComplete="new-password"
+                placeholder="At least 6 characters"
+                style={inputShell}
               />
             </div>
           </div>
 
-          {/* Passwords */}
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: '1fr 1fr', 
-            gap: '20px',
-            marginBottom: '24px'
-          }}>
-            {/* Password */}
-            <div>
-              <label style={{
-                display: 'block',
-                marginBottom: '8px',
-                fontWeight: '600',
-                fontSize: '14px',
-                color: '#333'
-              }}>
-                Password *
-              </label>
-              <div style={{ position: 'relative' }}>
-                <Lock size={18} style={{ position: 'absolute', left: '12px', top: '12px', color: '#999' }} />
-                <input
-                  type="password"
-                  name="password"
-                  value={formData.password}
-                  onChange={handleChange}
-                  required
-                  placeholder="••••••••"
-                  style={{
-                    width: '100%',
-                    padding: '12px 12px 12px 40px',
-                    border: '2px solid #e0e0e0',
-                    borderRadius: '8px',
-                    fontSize: '15px'
-                  }}
-                />
-              </div>
-            </div>
-
-            {/* Confirm Password */}
-            <div>
-              <label style={{
-                display: 'block',
-                marginBottom: '8px',
-                fontWeight: '600',
-                fontSize: '14px',
-                color: '#333'
-              }}>
-                Confirm Password *
-              </label>
-              <div style={{ position: 'relative' }}>
-                <Lock size={18} style={{ position: 'absolute', left: '12px', top: '12px', color: '#999' }} />
-                <input
-                  type="password"
-                  name="confirmPassword"
-                  value={formData.confirmPassword}
-                  onChange={handleChange}
-                  required
-                  placeholder="••••••••"
-                  style={{
-                    width: '100%',
-                    padding: '12px 12px 12px 40px',
-                    border: '2px solid #e0e0e0',
-                    borderRadius: '8px',
-                    fontSize: '15px'
-                  }}
-                />
-              </div>
+          <div style={{ marginBottom: '24px' }}>
+            <label style={labelStyle}>Confirm password *</label>
+            <div style={{ position: 'relative' }}>
+              <Lock size={18} style={{ position: 'absolute', left: '12px', top: '12px', color: '#999' }} />
+              <input
+                type="password"
+                name="confirmPassword"
+                value={formData.confirmPassword}
+                onChange={handleChange}
+                required
+                autoComplete="new-password"
+                placeholder="Re-enter password"
+                style={inputShell}
+              />
             </div>
           </div>
 
-          {/* Submit Button */}
           <button
             type="submit"
             disabled={loading}
@@ -338,17 +224,16 @@ function Register() {
             }}
           >
             {loading ? (
-              <span>Creating Account...</span>
+              <span>Creating account…</span>
             ) : (
               <>
                 <CheckCircle size={20} />
-                <span>Create Account</span>
+                <span>Create account</span>
               </>
             )}
           </button>
         </form>
 
-        {/* Footer */}
         <div style={{
           marginTop: '24px',
           paddingTop: '24px',
@@ -357,12 +242,12 @@ function Register() {
         }}>
           <p style={{ fontSize: '14px', color: '#666' }}>
             Already have an account?{' '}
-            <Link 
-              to="/login" 
-              style={{ 
-                color: '#667eea', 
-                textDecoration: 'none', 
-                fontWeight: '600' 
+            <Link
+              to="/login"
+              style={{
+                color: '#667eea',
+                textDecoration: 'none',
+                fontWeight: '600'
               }}
             >
               Sign in

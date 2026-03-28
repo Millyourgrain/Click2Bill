@@ -1,33 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Building,
-  MapPin,
   Mail,
   Phone,
-  Hash,
+  MapPin,
   Upload,
   X,
   CheckCircle,
   AlertCircle,
-  User,
-  FileText,
-  Shield,
-  Car,
-  ChevronDown,
-  ChevronUp,
+  Hash,
 } from 'lucide-react';
-import {
-  saveCompanyInfo,
-  getCompanyInfo,
-  uploadCompanyLogo,
-  uploadArticlesOfIncorporation,
-  uploadBankingDetails,
-  uploadCommercialLiabilityPolicy,
-  uploadGeneralLiabilityPolicy,
-  deleteCompanyLogo,
-} from '../../services/companyService';
+import { saveCompanyInfo, getOwnCompanyDocument, uploadBinaryForSetup } from '../../services/companyService';
+import { sendEmail } from '../../services/emailService';
 import { useAuth } from '../../contexts/AuthContext';
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const BUSINESS_STRUCTURES = [
   'Sole proprietorship',
@@ -36,108 +24,356 @@ const BUSINESS_STRUCTURES = [
   'Non-Profit',
 ];
 
-const ROLE_TYPES = [
-  'PSW',
-  'RPN',
-  'RN',
-  'Caregiver/companion',
-  'Independent contractor/Service provider',
-  'Other',
+const INVOICE_SYSTEM = {
+  AUTH: 'authorized_signatory',
+  MC: 'maker_checker',
+};
+
+const TRANSACTION_ROLE = {
+  AUTH: 'authorized_signatory',
+  MAKER: 'maker',
+  CHECKER: 'checker',
+};
+
+const VERIFICATION_DOCS = [
+  { field: 'verifyDocArticlesUrl', label: 'Articles of Incorporation' },
+  { field: 'verifyDocGstHstUrl', label: 'GST/HST registration confirmation' },
+  { field: 'verifyDocBankStatementUrl', label: 'Bank account statement' },
+  { field: 'verifyDocObrUrl', label: 'OBR Certificate of Status' },
+  { field: 'verifyDocCraBnUrl', label: 'CRA Business Number confirmation letter' },
 ];
 
-const WSIB_OPTIONS = ['registered', 'exempt'];
+/** Permission rows: create, edit, approve, send, view, manage */
+const PERMISSION_MATRIX = {
+  auth: [true, true, true, true, true, true],
+  maker: [true, true, false, false, true, false],
+  checker: [false, false, true, true, true, false],
+};
 
-/** Stable component: section content is always in DOM (display toggled) so input focus is preserved */
-function CollapsibleSection({ id, title, icon: Icon, isExpanded, onToggle, children }) {
+const PERMISSION_LABELS = [
+  'Create invoice',
+  'Edit invoice',
+  'Approve invoice',
+  'Send invoice',
+  'View all invoices',
+  'Manage users',
+];
+
+/** Five screens: points 1–3, 4–6, 7–9, 10–11, then 12–14 (photo ID, proof of address, acknowledgement). */
+const WIZARD_PAGE_COUNT = 5;
+const WIZARD_POINT_LABELS = ['1–3', '4–6', '7–9', '10–11', '12–14'];
+
+function wizardPointRange(pageIndex) {
+  return WIZARD_POINT_LABELS[pageIndex] ?? '';
+}
+
+function Section({ num, title, children }) {
   return (
-    <div style={{ marginBottom: '16px', border: '1px solid #e0e0e0', borderRadius: '12px', overflow: 'hidden' }}>
-      <button
-        type="button"
-        onClick={() => onToggle(id)}
-        style={{
-          width: '100%',
-          padding: '16px 20px',
-          background: '#f8f9fa',
-          border: 'none',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          cursor: 'pointer',
-          fontSize: '16px',
-          fontWeight: '600',
-        }}
-      >
-        <span style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <Icon size={20} color="#667eea" />
-          {title}
-        </span>
-        {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-      </button>
-      <div style={{ display: isExpanded ? 'block' : 'none', padding: '24px', background: 'white' }}>
-        {children}
-      </div>
+    <div style={{ marginBottom: '28px', paddingBottom: '24px', borderBottom: '1px solid #eee' }}>
+      <h2 style={{ fontSize: '18px', fontWeight: '700', marginBottom: '16px', color: '#333' }}>
+        <span style={{ color: '#667eea', marginRight: '8px' }}>{num}.</span>
+        {title}
+      </h2>
+      {children}
     </div>
   );
+}
+
+function PermissionsTableByModel({ invoiceSystem, userTransactionRole }) {
+  const baseCell = { border: '1px solid #e0e0e0', padding: '10px', textAlign: 'center', verticalAlign: 'middle' };
+  const cellLeft = { ...baseCell, textAlign: 'left' };
+
+  const tick = (allowed) => (
+    <span style={{ color: allowed ? '#16a34a' : '#9ca3af', fontWeight: allowed ? 700 : 400, fontSize: '16px' }}>
+      {allowed ? '✓' : '—'}
+    </span>
+  );
+
+  const headerBg = (highlight) => ({
+    ...baseCell,
+    background: highlight ? '#ecfdf5' : '#f8f9fa',
+    fontWeight: 600,
+    borderBottom: highlight ? '2px solid #16a34a' : undefined,
+  });
+
+  if (!invoiceSystem) {
+    return (
+      <p style={{ fontSize: '14px', color: '#888', marginBottom: 0 }}>
+        Select an invoicing model above to see the permissions that apply for your organization.
+      </p>
+    );
+  }
+
+  if (invoiceSystem === INVOICE_SYSTEM.AUTH) {
+    const vals = PERMISSION_MATRIX.auth;
+    return (
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+          <thead>
+            <tr>
+              <th style={headerBg(false)}>Permission</th>
+              <th style={headerBg(true)}>Authorized signatory</th>
+            </tr>
+          </thead>
+          <tbody>
+            {PERMISSION_LABELS.map((label, i) => (
+              <tr key={label}>
+                <td style={cellLeft}>{label}</td>
+                <td style={{ ...baseCell, background: 'rgba(22, 163, 74, 0.08)' }}>{tick(vals[i])}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p style={{ fontSize: '13px', color: '#666', marginTop: '12px', marginBottom: 0 }}>
+          Maker and checker roles do not apply when you use the authorized signatory model.
+        </p>
+      </div>
+    );
+  }
+
+  if (invoiceSystem === INVOICE_SYSTEM.MC) {
+    const maker = PERMISSION_MATRIX.maker;
+    const checker = PERMISSION_MATRIX.checker;
+    const hlMaker = userTransactionRole === TRANSACTION_ROLE.MAKER;
+    const hlChecker = userTransactionRole === TRANSACTION_ROLE.CHECKER;
+    return (
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+          <thead>
+            <tr>
+              <th style={headerBg(false)}>Permission</th>
+              <th style={headerBg(hlMaker)}>Maker (issuer)</th>
+              <th style={headerBg(hlChecker)}>Checker (approver)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {PERMISSION_LABELS.map((label, i) => (
+              <tr key={label}>
+                <td style={cellLeft}>{label}</td>
+                <td style={{ ...baseCell, background: hlMaker ? 'rgba(22, 163, 74, 0.08)' : undefined }}>
+                  {tick(maker[i])}
+                </td>
+                <td style={{ ...baseCell, background: hlChecker ? 'rgba(22, 163, 74, 0.08)' : undefined }}>
+                  {tick(checker[i])}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p style={{ fontSize: '13px', color: '#666', marginTop: '12px', marginBottom: 0 }}>
+          The authorized signatory column is hidden for maker–checker setups. After you choose your personal role in section 10, your column is highlighted.
+        </p>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+function acknowledgementCopy(role) {
+  switch (role) {
+    case TRANSACTION_ROLE.AUTH:
+      return 'I confirm that I am the authorized signatory for this company. I acknowledge that I may create, edit, approve, and send invoices, view all invoices, and manage users, consistent with the permissions above.';
+    case TRANSACTION_ROLE.MAKER:
+      return 'I confirm that I am the Maker (issuer). I acknowledge that I may create and edit invoices, and view all invoices, consistent with the permissions above.';
+    case TRANSACTION_ROLE.CHECKER:
+      return 'I confirm that I am the Checker (approver). I acknowledge that I may approve and send invoices, and view all invoices, consistent with the permissions above.';
+    default:
+      return 'I confirm my role as described above.';
+  }
 }
 
 function CompanySetup() {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
   const [formData, setFormData] = useState({
-    companyName: '',
-    legalBusinessName: '',
-    operationalNameDba: '',
-    companyAddress: '',
-    email: currentUser?.email || '',
-    phone: currentUser?.phone || '',
-    logoUrl: '',
-    workingIndependently: null,
     businessStructure: '',
-    articlesOfIncorporationUrl: '',
-    name: '',
-    dateOfBirth: '',
-    provincialFederalId: '',
-    roleTypeOfService: '',
-    roleTypeOther: '',
+    legalBusinessName: '',
+    companyAddress: '',
+    logoUrl: '',
+    bnNumber: '',
+    verifyDocArticlesUrl: '',
+    verifyDocGstHstUrl: '',
+    verifyDocBankStatementUrl: '',
+    verifyDocObrUrl: '',
+    verifyDocCraBnUrl: '',
     gstNumber: '',
-    bankingDetailsUrl: '',
-    commercialLiabilityInsurance: null,
-    commercialLiabilityPolicyUrl: '',
-    commercialLiabilityInterested: null,
-    generalLiabilityInsurance: null,
-    generalLiabilityPolicyUrl: '',
-    generalLiabilityInterested: null,
-    insuranceAcknowledgement: false,
-    wsibCoverage: '',
-    quoteTravelCostOnInvoice: null,
-    vehicleDetails: null,
+    bankTransitNumber: '',
+    bankInstitutionNumber: '',
+    bankAccountNumber: '',
+    invoiceSystem: '',
+    userTransactionRole: '',
+    eInvoiceIssuerName: '',
+    authSoleSignatoryConfirmed: false,
+    mcPrimaryUserFullLegalName: '',
+    mcPrimaryUserAddress: '',
+    email: '',
+    phone: '',
+    governmentPhotoIdUrl: '',
+    proofOfAddressUrl: '',
+    governmentIdUrl: '',
+    roleAcknowledgement: false,
   });
 
   const [logoFile, setLogoFile] = useState(null);
   const [logoPreview, setLogoPreview] = useState(null);
+  const [uploadBusy, setUploadBusy] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [isEditing, setIsEditing] = useState(false);
-  const [expandedSection, setExpandedSection] = useState('business');
-  const [vehicleData, setVehicleData] = useState({
-    vehicleType: 'car',
-    insuranceCost: '',
-    kmRuns: '',
-    usagePattern: { highway: 50, city: 40, heavy: 10 },
-  });
+  const [verifyDocType, setVerifyDocType] = useState('');
+  const [mcInviteeCount, setMcInviteeCount] = useState(1);
+  const [mcInvitees, setMcInvitees] = useState([{ email: '', role: 'maker' }]);
+  const [wizardStep, setWizardStep] = useState(0);
 
   useEffect(() => {
-    loadProfile();
-  }, []);
+    if (currentUser?.organizationOwnerId) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [currentUser?.organizationOwnerId, navigate]);
 
-  const loadProfile = async () => {
-    const result = await getCompanyInfo();
-    if (result.success && result.data) {
-      setFormData((prev) => ({ ...prev, ...result.data }));
-      setLogoPreview(result.data.logoUrl);
-      if (result.data.vehicleDetails) setVehicleData(result.data.vehicleDetails);
-      setIsEditing(true);
+  useEffect(() => {
+    if (!currentUser?.uid) return;
+
+    setFormData((prev) => ({ ...prev, email: currentUser.email || prev.email }));
+
+    (async () => {
+      const result = await getOwnCompanyDocument();
+      if (result.success && result.data) {
+        const d = result.data;
+        setFormData((prev) => ({
+          ...prev,
+          ...d,
+          verifyDocArticlesUrl: d.verifyDocArticlesUrl || d.articlesOfIncorporationUrl || '',
+          governmentPhotoIdUrl: d.governmentPhotoIdUrl || d.governmentIdUrl || prev.governmentPhotoIdUrl || '',
+          proofOfAddressUrl: d.proofOfAddressUrl || prev.proofOfAddressUrl || '',
+          email: currentUser.email || d.email || prev.email,
+        }));
+        setLogoPreview(d.logoUrl || null);
+        setIsEditing(true);
+        if (Array.isArray(d.mcInvitees) && d.mcInvitees.length > 0) {
+          const n = Math.min(5, Math.max(1, d.mcInviteeCount || d.mcInvitees.length));
+          setMcInviteeCount(n);
+          setMcInvitees(
+            d.mcInvitees.slice(0, n).map((row) => ({
+              email: row.email || '',
+              role: row.role === 'checker' ? 'checker' : 'maker',
+            }))
+          );
+        } else if (d.mcInviteeCount >= 1 && d.mcInviteeCount <= 5) {
+          const n = d.mcInviteeCount;
+          setMcInviteeCount(n);
+          setMcInvitees(Array.from({ length: n }, () => ({ email: '', role: 'maker' })));
+        }
+      }
+    })();
+  }, [currentUser?.uid, currentUser?.email]);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [wizardStep]);
+
+  const validateWizardStep = (step) => {
+    if (step === 0) {
+      if (!formData.businessStructure) return 'Select a business structure (point 1).';
+      if (!formData.legalBusinessName?.trim()) return 'Enter the legal company name (point 2).';
+      if (!formData.companyAddress?.trim()) return 'Enter the registered / business address (point 2).';
+      return '';
+    }
+    if (step === 1) {
+      const bn = formData.bnNumber.replace(/\D/g, '');
+      if (bn.length !== 9) return 'Business number (BN) must be 9 digits (point 4).';
+      if (countVerificationUploads() < 2) return 'Upload at least two verification document types (point 5).';
+      return '';
+    }
+    if (step === 2) {
+      if (!/^\d{5}$/.test(formData.bankTransitNumber.trim())) {
+        return 'Transit number must be exactly 5 digits (point 7).';
+      }
+      if (!/^\d{3}$/.test(formData.bankInstitutionNumber.trim())) {
+        return 'Institution number must be exactly 3 digits (point 7).';
+      }
+      const acct = formData.bankAccountNumber.replace(/\s/g, '');
+      if (!/^\d{1,12}$/.test(acct)) return 'Account number must be 1–12 digits only (point 7).';
+      if (!formData.invoiceSystem) return 'Select an invoicing model (point 8).';
+      if (formData.invoiceSystem === INVOICE_SYSTEM.AUTH) {
+        if (!formData.eInvoiceIssuerName?.trim()) {
+          return 'Enter your full legal name as on government-issued ID (point 9).';
+        }
+        if (!formData.authSoleSignatoryConfirmed) {
+          return 'Confirm you are the only authorized signatory (point 9).';
+        }
+      }
+      if (formData.invoiceSystem === INVOICE_SYSTEM.MC) {
+        const ownerEmail = (currentUser?.email || '').trim().toLowerCase();
+        const seen = new Set();
+        for (let i = 0; i < mcInvitees.length; i++) {
+          const row = mcInvitees[i];
+          const em = (row.email || '').trim().toLowerCase();
+          if (!em) return `Enter an email for invited teammate ${i + 1} (point 9).`;
+          if (!EMAIL_RE.test(em)) return `Invalid email for invited teammate ${i + 1}.`;
+          if (em === ownerEmail) return 'Invited emails cannot include your own sign-in email.';
+          if (seen.has(em)) return 'Each invited email must be unique.';
+          seen.add(em);
+          if (row.role !== 'maker' && row.role !== 'checker') return 'Choose Maker or Checker for each invite.';
+        }
+      }
+      return '';
+    }
+    if (step === 3) {
+      if (formData.invoiceSystem === INVOICE_SYSTEM.MC) {
+        if (
+          formData.userTransactionRole !== TRANSACTION_ROLE.MAKER
+          && formData.userTransactionRole !== TRANSACTION_ROLE.CHECKER
+        ) {
+          return 'Select your role: Maker or Checker (point 10).';
+        }
+        const allRoles = [formData.userTransactionRole, ...mcInvitees.map((r) => r.role)];
+        if (!allRoles.includes('maker') || !allRoles.includes('checker')) {
+          return 'There must be at least one Maker and one Checker among you and your invited teammates.';
+        }
+        if (!formData.mcPrimaryUserFullLegalName?.trim()) {
+          return 'Enter your full legal name as on government-issued ID (point 11).';
+        }
+        if (!formData.mcPrimaryUserAddress?.trim()) return 'Enter your address (point 11).';
+      }
+      const digitsPhone = formData.phone.replace(/\D/g, '');
+      if (digitsPhone.length < 10) return 'Cell number must be at least 10 digits (point 11).';
+      return '';
+    }
+    if (step === 4) {
+      if (!formData.userTransactionRole) return 'Complete the previous step (your role / permissions).';
+      if (!formData.governmentPhotoIdUrl) return 'Upload your government-issued photo ID (point 12).';
+      if (!formData.proofOfAddressUrl) return 'Upload proof of address (point 13).';
+      if (!formData.roleAcknowledgement) return 'Confirm the acknowledgement (point 14).';
+      return '';
+    }
+    return '';
+  };
+
+  const goNext = () => {
+    const err = validateWizardStep(wizardStep);
+    if (err) {
+      setError(err);
+      return;
+    }
+    setError('');
+    setWizardStep((s) => Math.min(WIZARD_PAGE_COUNT - 1, s + 1));
+  };
+
+  const goBack = () => {
+    setError('');
+    setWizardStep((s) => Math.max(0, s - 1));
+  };
+
+  /** Advance without validating (or exit on final step if not saving). */
+  const skipThisStep = () => {
+    setError('');
+    if (wizardStep < WIZARD_PAGE_COUNT - 1) {
+      setWizardStep((s) => Math.min(WIZARD_PAGE_COUNT - 1, s + 1));
+    } else {
+      navigate('/dashboard');
     }
   };
 
@@ -150,26 +386,66 @@ function CompanySetup() {
     setError('');
   };
 
-  const setYesNo = (field, value) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
+  const setInvoiceSystem = (value) => {
+    setFormData((p) => {
+      if (value === INVOICE_SYSTEM.AUTH) {
+        return {
+          ...p,
+          invoiceSystem: value,
+          userTransactionRole: TRANSACTION_ROLE.AUTH,
+          authSoleSignatoryConfirmed: false,
+          mcPrimaryUserFullLegalName: '',
+          mcPrimaryUserAddress: '',
+        };
+      }
+      const keep =
+        p.userTransactionRole === TRANSACTION_ROLE.MAKER ||
+        p.userTransactionRole === TRANSACTION_ROLE.CHECKER;
+      return {
+        ...p,
+        invoiceSystem: value,
+        userTransactionRole: keep ? p.userTransactionRole : '',
+        eInvoiceIssuerName: '',
+        authSoleSignatoryConfirmed: false,
+      };
+    });
+    if (value === INVOICE_SYSTEM.MC) {
+      setMcInviteeCount(1);
+      setMcInvitees([{ email: '', role: 'maker' }]);
+    }
+    setError('');
+  };
+
+  const onMcInviteeCountChange = (raw) => {
+    const count = Math.min(5, Math.max(1, Number(raw) || 1));
+    setMcInviteeCount(count);
+    setMcInvitees((rows) => {
+      const next = rows.slice(0, count);
+      while (next.length < count) next.push({ email: '', role: 'maker' });
+      return next;
+    });
+  };
+
+  const setMcInviteRow = (index, patch) => {
+    setMcInvitees((rows) => rows.map((r, i) => (i === index ? { ...r, ...patch } : r)));
   };
 
   const handleLogoChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      if (!file.type.startsWith('image/')) {
-        setError('Please select an image file');
-        return;
-      }
-      if (file.size > 5 * 1024 * 1024) {
-        setError('Image size should be less than 5MB');
-        return;
-      }
-      setLogoFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => setLogoPreview(reader.result);
-      reader.readAsDataURL(file);
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setError('Please select an image file for the logo.');
+      return;
     }
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Logo must be under 5MB.');
+      return;
+    }
+    setLogoFile(file);
+    const reader = new FileReader();
+    reader.onloadend = () => setLogoPreview(reader.result);
+    reader.readAsDataURL(file);
+    setError('');
   };
 
   const removeLogo = () => {
@@ -178,58 +454,18 @@ function CompanySetup() {
     setFormData((prev) => ({ ...prev, logoUrl: '' }));
   };
 
-  const handleFileUpload = async (uploadFn, file, field) => {
+  const uploadField = useCallback(async (fieldKey, storageSlug, file) => {
     if (!file) return;
+    setUploadBusy(fieldKey);
     setError('');
-    const result = await uploadFn(file);
-    if (result.success) {
-      setFormData((prev) => ({ ...prev, [field]: result.url }));
+    const res = await uploadBinaryForSetup(file, `companySetup/${storageSlug}`, fieldKey);
+    setUploadBusy(null);
+    if (res.success) {
+      setFormData((prev) => ({ ...prev, [fieldKey]: res.url }));
     } else {
-      setError(result.error);
+      setError(res.error || 'Upload failed');
     }
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
-    setSuccess('');
-    setLoading(true);
-
-    try {
-      let logoUrl = formData.logoUrl;
-      if (logoFile) {
-        const uploadResult = await uploadCompanyLogo(logoFile);
-        if (uploadResult.success) logoUrl = uploadResult.url;
-        else {
-          setError(uploadResult.error);
-          setLoading(false);
-          return;
-        }
-      }
-
-      const payload = {
-        ...formData,
-        logoUrl,
-        vehicleDetails:
-          formData.quoteTravelCostOnInvoice === true ? vehicleData : null,
-      };
-
-      const result = await saveCompanyInfo(payload);
-      if (result.success) {
-        setSuccess('Profile saved successfully!');
-        setTimeout(() => navigate('/dashboard'), 1500);
-      } else {
-        setError(result.error);
-      }
-    } catch (err) {
-      setError('Failed to save profile');
-    }
-    setLoading(false);
-  };
-
-  const toggleSection = (section) => {
-    setExpandedSection((s) => (s === section ? null : section));
-  };
+  }, []);
 
   const inputStyle = {
     width: '100%',
@@ -242,6 +478,116 @@ function CompanySetup() {
   const iconWrap = { position: 'relative' };
   const iconStyle = { position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#999' };
 
+  const countVerificationUploads = () =>
+    VERIFICATION_DOCS.filter(({ field }) => formData[field]).length;
+
+  const validate = () => {
+    for (let s = 0; s < WIZARD_PAGE_COUNT; s++) {
+      const err = validateWizardStep(s);
+      if (err) return err;
+    }
+    return '';
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+
+    const v = validate();
+    if (v) {
+      setError(v);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      let logoUrl = formData.logoUrl;
+      if (logoFile) {
+        const up = await uploadBinaryForSetup(logoFile, 'companySetup/logos', 'logo');
+        if (!up.success) {
+          setError(up.error || 'Logo upload failed');
+          setLoading(false);
+          return;
+        }
+        logoUrl = up.url;
+      }
+
+      const payload = {
+        ...formData,
+        logoUrl,
+        email: currentUser?.email || formData.email,
+        bankAccountNumber: formData.bankAccountNumber.replace(/\s/g, ''),
+        bnNumber: formData.bnNumber.replace(/\D/g, ''),
+        gstNumber: formData.gstNumber.trim(),
+        mcInviteeCount: formData.invoiceSystem === INVOICE_SYSTEM.MC ? mcInviteeCount : 0,
+        mcInvitees: formData.invoiceSystem === INVOICE_SYSTEM.MC ? mcInvitees.map((r) => ({
+          email: r.email.trim(),
+          role: r.role,
+        })) : [],
+        authSoleSignatoryConfirmed:
+          formData.invoiceSystem === INVOICE_SYSTEM.AUTH ? !!formData.authSoleSignatoryConfirmed : false,
+        eInvoiceIssuerName:
+          formData.invoiceSystem === INVOICE_SYSTEM.AUTH
+            ? formData.eInvoiceIssuerName.trim()
+            : '',
+        companyAddress: formData.companyAddress.trim(),
+        mcPrimaryUserFullLegalName:
+          formData.invoiceSystem === INVOICE_SYSTEM.MC
+            ? formData.mcPrimaryUserFullLegalName.trim()
+            : '',
+        mcPrimaryUserAddress:
+          formData.invoiceSystem === INVOICE_SYSTEM.MC
+            ? formData.mcPrimaryUserAddress.trim()
+            : '',
+        governmentPhotoIdUrl: formData.governmentPhotoIdUrl || '',
+        proofOfAddressUrl: formData.proofOfAddressUrl || '',
+      };
+
+      const result = await saveCompanyInfo(payload);
+      if (result.success) {
+        if (formData.invoiceSystem === INVOICE_SYSTEM.MC && currentUser?.uid) {
+          const companyLabel = payload.legalBusinessName || 'your organization';
+          const toInvite = mcInvitees.filter((row) => row.email?.trim());
+          const inviteResults = await Promise.all(
+            toInvite.map(async (row) => {
+              const to = row.email.trim();
+              const link = `${window.location.origin}/register?email=${encodeURIComponent(to)}&org=${encodeURIComponent(currentUser.uid)}&teamRole=${encodeURIComponent(row.role)}`;
+              const roleLabel = row.role === 'maker' ? 'Maker (issuer)' : 'Checker (approver)';
+              const inviteRes = await sendEmail({
+                to,
+                subject: `Join ${companyLabel} — e-invoicing platform`,
+                text:
+                  `You have been invited to join ${companyLabel} on the e-invoicing platform as a ${roleLabel}.\n\n`
+                  + 'Create your password and open your account using the link below. Use the same email this message was sent to.\n\n'
+                  + `${link}\n\n`
+                  + 'If you did not expect this invitation, you can ignore this email.',
+              });
+              return { to, ...inviteRes };
+            })
+          );
+          const failed = inviteResults.find((r) => !r.success);
+          if (failed) {
+            setError(
+              `Profile saved, but the invite to ${failed.to} could not be sent: ${failed.error || 'email failed'}. You can update the profile to resend.`
+            );
+            setLogoFile(null);
+            setLoading(false);
+            return;
+          }
+        }
+        setSuccess('Profile saved successfully!');
+        setLogoFile(null);
+        setTimeout(() => navigate('/dashboard'), 1500);
+      } else {
+        setError(result.error);
+      }
+    } catch {
+      setError('Failed to save profile');
+    }
+    setLoading(false);
+  };
+
   return (
     <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', padding: '40px 20px' }}>
       <div style={{ maxWidth: '800px', margin: '0 auto', background: 'white', borderRadius: '16px', padding: '48px', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
@@ -250,10 +596,10 @@ function CompanySetup() {
             <Building size={32} color="white" />
           </div>
           <h1 style={{ fontSize: '28px', fontWeight: '700', marginBottom: '8px' }}>
-            {isEditing ? 'Update Your Profile' : 'Set Up Your Profile'}
+            {isEditing ? 'Update Your Company Profile' : 'Company Profile Setup'}
           </h1>
           <p style={{ color: '#666', fontSize: '15px' }}>
-            Complete these details for the e-invoicing platform (independent PSW / Service worker)
+            Work through the flow in order — a few numbered points per screen. Verification (points 4–6 area) needs any two of the listed documents.
           </p>
         </div>
 
@@ -271,286 +617,449 @@ function CompanySetup() {
         )}
 
         <form onSubmit={handleSubmit}>
-          <CollapsibleSection id="business" title="Business structure & legal" icon={Building} isExpanded={expandedSection === 'business'} onToggle={toggleSection}>
-            <div style={{ marginBottom: '20px' }}>
-              <label style={labelStyle}>Company name *</label>
-              <div style={iconWrap}>
-                <Building size={18} style={iconStyle} />
-                <input type="text" name="companyName" value={formData.companyName} onChange={handleChange} required placeholder="e.g. ABC Care Services" style={inputStyle} />
-              </div>
+          <div style={{ marginBottom: '24px', padding: '16px', background: '#f8f9fa', borderRadius: '12px', border: '1px solid #e8e8e8' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+              <span style={{ fontWeight: '700', color: '#333' }}>Setup workflow</span>
+              <span style={{ fontSize: '14px', color: '#667eea', fontWeight: '600' }}>Step {wizardStep + 1} of {WIZARD_PAGE_COUNT}</span>
             </div>
-            <div style={{ marginBottom: '20px' }}>
-              <label style={labelStyle}>Are you working independently? *</label>
-              <div style={{ display: 'flex', gap: '16px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                  <input type="radio" name="workingIndependently" checked={formData.workingIndependently === true} onChange={() => setYesNo('workingIndependently', true)} />
-                  Yes
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                  <input type="radio" name="workingIndependently" checked={formData.workingIndependently === false} onChange={() => setYesNo('workingIndependently', false)} />
-                  No
-                </label>
-              </div>
+            <p style={{ fontSize: '14px', color: '#555', margin: '0 0 12px', lineHeight: 1.5 }}>
+              Each step shows a small batch of numbered points. On this page: <strong>{wizardPointRange(wizardStep)}</strong>.
+            </p>
+            <div style={{ height: '8px', background: '#e5e7eb', borderRadius: '4px', overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${((wizardStep + 1) / WIZARD_PAGE_COUNT) * 100}%`, background: 'linear-gradient(90deg, #667eea, #764ba2)', borderRadius: '4px', transition: 'width 0.25s ease' }} />
             </div>
-            {formData.workingIndependently === true && (
-              <>
-                <div style={{ marginBottom: '20px' }}>
-                  <label style={labelStyle}>Business structure *</label>
-                  <select name="businessStructure" value={formData.businessStructure} onChange={handleChange} required style={{ ...inputStyle, paddingLeft: '12px' }}>
-                    <option value="">Select</option>
-                    {BUSINESS_STRUCTURES.map((s) => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                  </select>
-                </div>
-                <div style={{ marginBottom: '20px' }}>
-                  <label style={labelStyle}>Legal business name *</label>
-                  <input type="text" name="legalBusinessName" value={formData.legalBusinessName} onChange={handleChange} required placeholder="Legal name" style={inputStyle} />
-                </div>
-                <div style={{ marginBottom: '20px' }}>
-                  <label style={labelStyle}>Articles of incorporation (optional)</label>
-                  <input type="file" accept="image/*,application/pdf" onChange={(e) => e.target.files[0] && handleFileUpload(uploadArticlesOfIncorporation, e.target.files[0], 'articlesOfIncorporationUrl')} style={{ marginTop: '8px' }} />
-                  {formData.articlesOfIncorporationUrl && <a href={formData.articlesOfIncorporationUrl} target="_blank" rel="noreferrer" style={{ fontSize: '14px', color: '#667eea' }}>View uploaded</a>}
-                </div>
-              </>
-            )}
-          </CollapsibleSection>
+          </div>
 
-          <CollapsibleSection id="personal" title="Name, role & contact" icon={User} isExpanded={expandedSection === 'personal'} onToggle={toggleSection}>
-            <div style={{ marginBottom: '20px' }}>
-              <label style={labelStyle}>Name *</label>
+          {wizardStep === 0 && (
+          <>
+          <Section num={1} title="Business structure">
+            <label style={labelStyle}>Business structure *</label>
+            <select name="businessStructure" value={formData.businessStructure} onChange={handleChange} required style={{ ...inputStyle, paddingLeft: '12px' }}>
+              <option value="">Select</option>
+              {BUSINESS_STRUCTURES.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </Section>
+
+          <Section num={2} title="Legal company name & address">
+            <label style={labelStyle}>Legal company name *</label>
+            <div style={iconWrap}>
+              <Building size={18} style={iconStyle} />
+              <input type="text" name="legalBusinessName" value={formData.legalBusinessName} onChange={handleChange} required placeholder="As registered with CRA" style={inputStyle} />
+            </div>
+            <div style={{ marginTop: '20px' }}>
+              <label style={labelStyle}>Registered / business address *</label>
               <div style={iconWrap}>
-                <User size={18} style={iconStyle} />
-                <input type="text" name="name" value={formData.name} onChange={handleChange} required placeholder="Full name" style={inputStyle} />
+                <MapPin size={18} style={{ ...iconStyle, top: '16px', transform: 'none' }} />
+                <textarea name="companyAddress" value={formData.companyAddress} onChange={handleChange} required rows={3} placeholder="Street, city, province, postal code" style={{ ...inputStyle, paddingLeft: '44px' }} />
               </div>
             </div>
-            <div style={{ marginBottom: '20px' }}>
-              <label style={labelStyle}>Date of birth</label>
-              <input type="date" name="dateOfBirth" value={formData.dateOfBirth} onChange={handleChange} style={{ ...inputStyle, paddingLeft: '12px' }} />
+          </Section>
+
+          <Section num={3} title="Company logo (optional)">
+            {!logoPreview ? (
+              <label style={{ display: 'block', padding: '24px', border: '2px dashed #ccc', borderRadius: '8px', textAlign: 'center', cursor: 'pointer' }}>
+                <Upload size={24} color="#999" style={{ marginBottom: '8px' }} />
+                <p style={{ margin: 0, color: '#666' }}>Click to upload logo</p>
+                <input type="file" accept="image/*" onChange={handleLogoChange} style={{ display: 'none' }} />
+              </label>
+            ) : (
+              <div style={{ position: 'relative', display: 'inline-block' }}>
+                <img src={logoPreview} alt="Logo" style={{ maxWidth: '160px', maxHeight: '80px', borderRadius: '8px', border: '2px solid #e0e0e0' }} />
+                <button type="button" onClick={removeLogo} style={{ position: 'absolute', top: '-8px', right: '-8px', background: '#dc3545', color: 'white', border: 'none', borderRadius: '50%', width: '28px', height: '28px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+          </Section>
+          </>
+          )}
+
+          {wizardStep === 1 && (
+          <>
+          <Section num={4} title="Business number (BN)">
+            <label style={labelStyle}>CRA Business Number (BN) *</label>
+            <div style={iconWrap}>
+              <Hash size={18} style={iconStyle} />
+              <input type="text" name="bnNumber" value={formData.bnNumber} onChange={handleChange} required placeholder="9-digit CRA BN" style={inputStyle} />
             </div>
-            <div style={{ marginBottom: '20px' }}>
-              <label style={labelStyle}>Provincial / Federal ID (optional)</label>
-              <input type="text" name="provincialFederalId" value={formData.provincialFederalId} onChange={handleChange} placeholder="Optional" style={inputStyle} />
-            </div>
-            <div style={{ marginBottom: '20px' }}>
-              <label style={labelStyle}>Role / type of service *</label>
-              <select name="roleTypeOfService" value={formData.roleTypeOfService} onChange={handleChange} required style={{ ...inputStyle, paddingLeft: '12px' }}>
-                <option value="">Select</option>
-                {ROLE_TYPES.map((r) => (
-                  <option key={r} value={r}>{r}</option>
+          </Section>
+
+          <Section num={5} title="Business verification — upload at least two">
+            <p style={{ fontSize: '14px', color: '#555', marginTop: 0, marginBottom: '16px' }}>
+              Choose a document type, then upload that file. Repeat until at least <strong>two</strong> document types are provided (image or PDF, max 10MB each).
+            </p>
+            <p style={{ fontSize: '13px', color: countVerificationUploads() >= 2 ? '#0d9488' : '#b45309', marginBottom: '16px', fontWeight: '600' }}>
+              Document types completed: {countVerificationUploads()} / 5 (minimum 2 required)
+            </p>
+            <div style={{ marginBottom: '16px' }}>
+              <label style={labelStyle}>Document type *</label>
+              <select
+                value={verifyDocType}
+                onChange={(e) => setVerifyDocType(e.target.value)}
+                style={{ ...inputStyle, paddingLeft: '12px' }}
+              >
+                <option value="">Select document to upload…</option>
+                {VERIFICATION_DOCS.map(({ field, label }) => (
+                  <option key={field} value={field}>{label}</option>
                 ))}
               </select>
             </div>
-            {formData.roleTypeOfService === 'Other' && (
-              <div style={{ marginBottom: '20px' }}>
-                <label style={labelStyle}>Other (specify)</label>
-                <input type="text" name="roleTypeOther" value={formData.roleTypeOther} onChange={handleChange} style={inputStyle} />
-              </div>
-            )}
-            <div style={{ marginBottom: '20px' }}>
-              <label style={labelStyle}>Operational name (DBA) – optional</label>
-              <input type="text" name="operationalNameDba" value={formData.operationalNameDba} onChange={handleChange} placeholder="Doing business as" style={inputStyle} />
-            </div>
-            <div style={{ marginBottom: '20px' }}>
-              <label style={labelStyle}>Logo (optional)</label>
-              {!logoPreview ? (
-                <label style={{ display: 'block', padding: '24px', border: '2px dashed #ccc', borderRadius: '8px', textAlign: 'center', cursor: 'pointer' }}>
-                  <Upload size={24} color="#999" style={{ marginBottom: '8px' }} />
-                  <p style={{ margin: 0, color: '#666' }}>Click to upload logo</p>
-                  <input type="file" accept="image/*" onChange={handleLogoChange} style={{ display: 'none' }} />
-                </label>
-              ) : (
-                <div style={{ position: 'relative', display: 'inline-block' }}>
-                  <img src={logoPreview} alt="Logo" style={{ maxWidth: '160px', maxHeight: '80px', borderRadius: '8px', border: '2px solid #e0e0e0' }} />
-                  <button type="button" onClick={removeLogo} style={{ position: 'absolute', top: '-8px', right: '-8px', background: '#dc3545', color: 'white', border: 'none', borderRadius: '50%', width: '24px', height: '24px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <X size={14} />
-                  </button>
-                </div>
+            <div style={{ marginBottom: '16px' }}>
+              <label style={labelStyle}>Upload file for selected type</label>
+              <input
+                type="file"
+                accept="image/*,application/pdf"
+                disabled={!verifyDocType || uploadBusy}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f && verifyDocType) {
+                    uploadField(verifyDocType, 'verification', f);
+                    setVerifyDocType('');
+                  }
+                  e.target.value = '';
+                }}
+              />
+              {verifyDocType && uploadBusy === verifyDocType && (
+                <span style={{ fontSize: '13px', color: '#666', marginLeft: '8px' }}>Uploading…</span>
               )}
             </div>
-            <div style={{ marginBottom: '20px' }}>
-              <label style={labelStyle}>Business address *</label>
-              <div style={iconWrap}>
-                <MapPin size={18} style={{ ...iconStyle, top: '16px', transform: 'none' }} />
-                <textarea name="companyAddress" value={formData.companyAddress} onChange={handleChange} required rows={3} placeholder="Street, City, Province, Postal code" style={{ ...inputStyle, paddingLeft: '44px' }} />
+            {VERIFICATION_DOCS.some(({ field }) => formData[field]) && (
+              <div style={{ padding: '12px', background: '#f8f9fa', borderRadius: '8px' }}>
+                <div style={{ fontWeight: '600', fontSize: '14px', marginBottom: '8px' }}>Uploaded documents</div>
+                <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '14px', color: '#444' }}>
+                  {VERIFICATION_DOCS.filter(({ field }) => formData[field]).map(({ field, label }) => (
+                    <li key={field} style={{ marginBottom: '6px' }}>
+                      <span style={{ fontWeight: '500' }}>{label}</span>
+                      {' — '}
+                      <a href={formData[field]} target="_blank" rel="noreferrer" style={{ color: '#667eea' }}>View file</a>
+                    </li>
+                  ))}
+                </ul>
               </div>
+            )}
+          </Section>
+
+          <Section num={6} title="HST/GST registration number (if applicable)">
+            <label style={labelStyle}>HST/GST registration number</label>
+            <div style={iconWrap}>
+              <Hash size={18} style={iconStyle} />
+              <input type="text" name="gstNumber" value={formData.gstNumber} onChange={handleChange} placeholder="e.g. 123456789 RT0001 — leave blank if not registered" style={inputStyle} />
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+          </Section>
+          </>
+          )}
+
+          {wizardStep === 2 && (
+          <>
+          <Section num={7} title="Payment information (direct deposit)">
+            <p style={{ fontSize: '14px', color: '#555', marginTop: 0 }}>Canadian clearing account details for this company.</p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
               <div>
-                <label style={labelStyle}>Email *</label>
-                <div style={iconWrap}>
-                  <Mail size={18} style={iconStyle} />
-                  <input type="email" name="email" value={formData.email} onChange={handleChange} required style={inputStyle} />
-                </div>
+                <label style={labelStyle}>Transit number * (5 digits)</label>
+                <input type="text" name="bankTransitNumber" value={formData.bankTransitNumber} onChange={handleChange} required inputMode="numeric" maxLength={5} placeholder="00000" style={{ ...inputStyle, paddingLeft: '12px' }} />
               </div>
               <div>
-                <label style={labelStyle}>Cell number</label>
-                <div style={iconWrap}>
-                  <Phone size={18} style={iconStyle} />
-                  <input type="tel" name="phone" value={formData.phone} onChange={handleChange} style={inputStyle} />
-                </div>
+                <label style={labelStyle}>Institution number * (3 digits)</label>
+                <input type="text" name="bankInstitutionNumber" value={formData.bankInstitutionNumber} onChange={handleChange} required inputMode="numeric" maxLength={3} placeholder="000" style={{ ...inputStyle, paddingLeft: '12px' }} />
               </div>
             </div>
-          </CollapsibleSection>
+            <div>
+              <label style={labelStyle}>Account number * (up to 12 digits)</label>
+              <input type="text" name="bankAccountNumber" value={formData.bankAccountNumber} onChange={handleChange} required inputMode="numeric" maxLength={12} placeholder="Account number" style={{ ...inputStyle, paddingLeft: '12px' }} />
+            </div>
+          </Section>
 
-          <CollapsibleSection id="tax" title="HST/GST & payment" icon={Hash} isExpanded={expandedSection === 'tax'} onToggle={toggleSection}>
-            <div style={{ marginBottom: '20px' }}>
-              <label style={labelStyle}>HST/GST registration number (if applicable)</label>
-              <div style={iconWrap}>
-                <Hash size={18} style={iconStyle} />
-                <input type="text" name="gstNumber" value={formData.gstNumber} onChange={handleChange} placeholder="e.g. 123456789 RT0001" style={inputStyle} />
-              </div>
+          <Section num={8} title="Invoicing model & permissions">
+            <p style={{ fontSize: '14px', color: '#555', marginTop: 0 }}>How will your organization use approvals? The permissions table below updates for your choice — only the roles that apply to this model are shown.</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', padding: '12px', border: formData.invoiceSystem === INVOICE_SYSTEM.AUTH ? '2px solid #667eea' : '1px solid #e0e0e0', borderRadius: '8px' }}>
+                <input type="radio" name="invoiceSystem" checked={formData.invoiceSystem === INVOICE_SYSTEM.AUTH} onChange={() => setInvoiceSystem(INVOICE_SYSTEM.AUTH)} />
+                <span><strong>Authorized signatory</strong> — One person creates and approves invoices.</span>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', padding: '12px', border: formData.invoiceSystem === INVOICE_SYSTEM.MC ? '2px solid #667eea' : '1px solid #e0e0e0', borderRadius: '8px' }}>
+                <input type="radio" name="invoiceSystem" checked={formData.invoiceSystem === INVOICE_SYSTEM.MC} onChange={() => setInvoiceSystem(INVOICE_SYSTEM.MC)} />
+                <span><strong>Maker–Checker</strong> — One person creates invoices; a separate person approves.</span>
+              </label>
             </div>
-            <div style={{ marginBottom: '20px' }}>
-              <label style={labelStyle}>Payment information – void cheque / direct deposit form</label>
-              <input type="file" accept="image/*,application/pdf" onChange={(e) => e.target.files[0] && handleFileUpload(uploadBankingDetails, e.target.files[0], 'bankingDetailsUrl')} style={{ marginTop: '8px' }} />
-              {formData.bankingDetailsUrl && <a href={formData.bankingDetailsUrl} target="_blank" rel="noreferrer" style={{ fontSize: '14px', color: '#667eea', display: 'block', marginTop: '8px' }}>View uploaded</a>}
-            </div>
-          </CollapsibleSection>
+            <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '12px', color: '#333' }}>Permissions for your model</h3>
+            <PermissionsTableByModel invoiceSystem={formData.invoiceSystem} userTransactionRole={formData.userTransactionRole} />
+          </Section>
 
-          <CollapsibleSection id="insurance" title="Insurance" icon={Shield} isExpanded={expandedSection === 'insurance'} onToggle={toggleSection}>
-            <div style={{ marginBottom: '20px' }}>
-              <label style={labelStyle}>Commercial liability insurance</label>
-              <div style={{ display: 'flex', gap: '16px', marginBottom: '8px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                  <input type="radio" checked={formData.commercialLiabilityInsurance === true} onChange={() => setYesNo('commercialLiabilityInsurance', true)} />
-                  Yes
+          <Section num={9} title={formData.invoiceSystem === INVOICE_SYSTEM.AUTH ? 'Authorized signatory (sole user)' : 'Invite teammates (Maker–Checker)'}>
+            {formData.invoiceSystem === INVOICE_SYSTEM.AUTH && (
+              <>
+                <p style={{ fontSize: '14px', color: '#555', marginTop: 0, marginBottom: '16px', lineHeight: 1.5 }}>
+                  Under the <strong>authorized signatory</strong> model, <strong>only one person</strong> may act on behalf of this company for e-invoicing — the account you are using now. No additional platform users are added.
+                </p>
+                <label style={labelStyle}>Full legal name as on government-issued ID *</label>
+                <input
+                  type="text"
+                  name="eInvoiceIssuerName"
+                  value={formData.eInvoiceIssuerName}
+                  onChange={handleChange}
+                  required
+                  placeholder="Exactly as shown on your government-issued ID"
+                  style={{ ...inputStyle, paddingLeft: '12px' }}
+                />
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', marginTop: '20px' }}>
+                  <input
+                    type="checkbox"
+                    name="authSoleSignatoryConfirmed"
+                    checked={formData.authSoleSignatoryConfirmed}
+                    onChange={handleChange}
+                    style={{ marginTop: '4px' }}
+                  />
+                  <span style={{ fontSize: '14px', lineHeight: 1.5 }}>
+                    I confirm that I am the <strong>only</strong> authorized signatory and the sole person permitted to issue e-invoices for this company on this platform.
+                  </span>
                 </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                  <input type="radio" checked={formData.commercialLiabilityInsurance === false} onChange={() => setYesNo('commercialLiabilityInsurance', false)} />
-                  No
-                </label>
-              </div>
-              {formData.commercialLiabilityInsurance === true && (
-                <div style={{ marginTop: '8px' }}>
-                  <input type="file" accept="image/*,application/pdf" onChange={(e) => e.target.files[0] && handleFileUpload(uploadCommercialLiabilityPolicy, e.target.files[0], 'commercialLiabilityPolicyUrl')} />
-                  {formData.commercialLiabilityPolicyUrl && <a href={formData.commercialLiabilityPolicyUrl} target="_blank" rel="noreferrer" style={{ fontSize: '14px', color: '#667eea' }}> View uploaded</a>}
-                </div>
-              )}
-              {formData.commercialLiabilityInsurance === false && (
-                <div style={{ marginTop: '8px' }}>
-                  <label style={{ ...labelStyle, fontWeight: '500' }}>Interested in obtaining one?</label>
-                  <div style={{ display: 'flex', gap: '16px' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                      <input type="radio" checked={formData.commercialLiabilityInterested === true} onChange={() => setFormData((p) => ({ ...p, commercialLiabilityInterested: true }))} />
-                      Yes
-                    </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                      <input type="radio" checked={formData.commercialLiabilityInterested === false} onChange={() => setFormData((p) => ({ ...p, commercialLiabilityInterested: false }))} />
-                      No
-                    </label>
+              </>
+            )}
+            {formData.invoiceSystem === INVOICE_SYSTEM.MC && (
+              <>
+                <p style={{ fontSize: '14px', color: '#555', marginTop: 0, marginBottom: '16px', lineHeight: 1.5 }}>
+                  Choose how many people (up to <strong>five</strong>) you are adding besides yourself. For each person, enter their work email and whether they will be a <strong>Maker</strong> or <strong>Checker</strong>. When you save this profile, we send each person an onboarding email with a sign-up link.
+                </p>
+                <label style={labelStyle}>Number of people to invite *</label>
+                <select
+                  value={mcInviteeCount}
+                  onChange={(e) => onMcInviteeCountChange(e.target.value)}
+                  style={{ ...inputStyle, paddingLeft: '12px', maxWidth: '200px' }}
+                >
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <option key={n} value={n}>{n}</option>
+                  ))}
+                </select>
+                {mcInvitees.map((row, index) => (
+                  <div
+                    key={index}
+                    style={{
+                      marginTop: '20px',
+                      padding: '16px',
+                      background: '#f8f9fa',
+                      borderRadius: '8px',
+                      border: '1px solid #e8e8e8',
+                    }}
+                  >
+                    <div style={{ fontWeight: '600', marginBottom: '12px', fontSize: '14px' }}>Teammate {index + 1}</div>
+                    <div style={{ marginBottom: '12px' }}>
+                      <label style={labelStyle}>Email *</label>
+                      <input
+                        type="email"
+                        value={row.email}
+                        onChange={(e) => setMcInviteRow(index, { email: e.target.value })}
+                        placeholder="colleague@company.com"
+                        style={{ ...inputStyle, paddingLeft: '12px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Role *</label>
+                      <select
+                        value={row.role}
+                        onChange={(e) => setMcInviteRow(index, { role: e.target.value })}
+                        style={{ ...inputStyle, paddingLeft: '12px' }}
+                      >
+                        <option value="maker">Maker (issuer)</option>
+                        <option value="checker">Checker (approver)</option>
+                      </select>
+                    </div>
                   </div>
+                ))}
+              </>
+            )}
+            {!formData.invoiceSystem && (
+              <p style={{ fontSize: '14px', color: '#888', margin: 0 }}>Select an invoicing model in section 8 first.</p>
+            )}
+          </Section>
+          </>
+          )}
+
+          {wizardStep === 3 && (
+          <>
+          <Section num={10} title="Your role in this transaction">
+            {formData.invoiceSystem === INVOICE_SYSTEM.MC && (
+              <>
+                <p style={{ fontSize: '14px', color: '#555', marginTop: 0, marginBottom: '12px' }}>
+                  You are the first account completing company setup. Choose whether <strong>you</strong> will be a Maker or a Checker (see permissions in section 8). Together with your invited teammates, the organization must include at least one Maker and one Checker.
+                </p>
+                <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                    <input type="radio" name="userTransactionRole" checked={formData.userTransactionRole === TRANSACTION_ROLE.MAKER} onChange={() => setFormData((p) => ({ ...p, userTransactionRole: TRANSACTION_ROLE.MAKER }))} />
+                    Maker (issuer)
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                    <input type="radio" name="userTransactionRole" checked={formData.userTransactionRole === TRANSACTION_ROLE.CHECKER} onChange={() => setFormData((p) => ({ ...p, userTransactionRole: TRANSACTION_ROLE.CHECKER }))} />
+                    Checker (approver)
+                  </label>
                 </div>
-              )}
-            </div>
-            <div style={{ marginBottom: '20px' }}>
-              <label style={labelStyle}>General liability insurance</label>
-              <div style={{ display: 'flex', gap: '16px', marginBottom: '8px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                  <input type="radio" checked={formData.generalLiabilityInsurance === true} onChange={() => setYesNo('generalLiabilityInsurance', true)} />
-                  Yes
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                  <input type="radio" checked={formData.generalLiabilityInsurance === false} onChange={() => setYesNo('generalLiabilityInsurance', false)} />
-                  No
-                </label>
-              </div>
-              {formData.generalLiabilityInsurance === true && (
-                <div style={{ marginTop: '8px' }}>
-                  <input type="file" accept="image/*,application/pdf" onChange={(e) => e.target.files[0] && handleFileUpload(uploadGeneralLiabilityPolicy, e.target.files[0], 'generalLiabilityPolicyUrl')} />
-                  {formData.generalLiabilityPolicyUrl && <a href={formData.generalLiabilityPolicyUrl} target="_blank" rel="noreferrer" style={{ fontSize: '14px', color: '#667eea' }}> View uploaded</a>}
-                </div>
-              )}
-              {formData.generalLiabilityInsurance === false && (
-                <div style={{ marginTop: '8px' }}>
-                  <label style={{ ...labelStyle, fontWeight: '500' }}>Interested in obtaining one?</label>
-                  <div style={{ display: 'flex', gap: '16px' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                      <input type="radio" checked={formData.generalLiabilityInterested === true} onChange={() => setFormData((p) => ({ ...p, generalLiabilityInterested: true }))} />
-                      Yes
-                    </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                      <input type="radio" checked={formData.generalLiabilityInterested === false} onChange={() => setFormData((p) => ({ ...p, generalLiabilityInterested: false }))} />
-                      No
-                    </label>
-                  </div>
-                </div>
-              )}
-            </div>
-            {(formData.commercialLiabilityInsurance === false || formData.generalLiabilityInsurance === false) && (
-              <div style={{ marginTop: '16px', padding: '12px', background: '#fff3cd', borderRadius: '8px', border: '1px solid #ffc107' }}>
-                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer' }}>
-                  <input type="checkbox" name="insuranceAcknowledgement" checked={formData.insuranceAcknowledgement} onChange={handleChange} style={{ marginTop: '4px' }} />
-                  <span style={{ fontSize: '14px' }}>Provider acknowledges responsibility for obtaining insurance where required.</span>
-                </label>
+              </>
+            )}
+            {formData.invoiceSystem === INVOICE_SYSTEM.AUTH && (
+              <div style={{ padding: '16px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: '8px' }}>
+                <p style={{ fontSize: '14px', color: '#14532d', margin: 0, lineHeight: 1.5 }}>
+                  <strong>Single-user model.</strong> Only you may use this company account on the platform. Your role is <strong>authorized signatory</strong> (all permissions in section 8 apply to you). No teammate invitations are used for this model.
+                </p>
               </div>
             )}
-          </CollapsibleSection>
+            {!formData.invoiceSystem && (
+              <p style={{ fontSize: '14px', color: '#888', margin: 0 }}>Select an invoicing model in section 8 first.</p>
+            )}
+          </Section>
 
-          <CollapsibleSection id="wsib" title="WSIB coverage" icon={FileText} isExpanded={expandedSection === 'wsib'} onToggle={toggleSection}>
-            <label style={labelStyle}>WSIB coverage *</label>
-            <select name="wsibCoverage" value={formData.wsibCoverage} onChange={handleChange} required style={{ ...inputStyle, paddingLeft: '12px' }}>
-              <option value="">Select</option>
-              {WSIB_OPTIONS.map((w) => (
-                <option key={w} value={w}>{w}</option>
-              ))}
-            </select>
-          </CollapsibleSection>
-
-          <CollapsibleSection id="travel" title="Travel on invoice" icon={Car} isExpanded={expandedSection === 'travel'} onToggle={toggleSection}>
-            <div style={{ marginBottom: '20px' }}>
-              <label style={labelStyle}>Quote travel cost on the invoice? *</label>
-              <div style={{ display: 'flex', gap: '16px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                  <input type="radio" checked={formData.quoteTravelCostOnInvoice === true} onChange={() => setYesNo('quoteTravelCostOnInvoice', true)} />
-                  Yes – save vehicle details below (once)
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                  <input type="radio" checked={formData.quoteTravelCostOnInvoice === false} onChange={() => setYesNo('quoteTravelCostOnInvoice', false)} />
-                  No – record travel distance for taxation only
-                </label>
-              </div>
-            </div>
-            {formData.quoteTravelCostOnInvoice === true && (
-              <div style={{ padding: '16px', background: '#f8f9fa', borderRadius: '8px' }}>
-                <div style={{ marginBottom: '12px' }}>
-                  <label style={labelStyle}>Vehicle type</label>
-                  <select value={vehicleData.vehicleType} onChange={(e) => setVehicleData((v) => ({ ...v, vehicleType: e.target.value }))} style={{ ...inputStyle, paddingLeft: '12px' }}>
-                    <option value="car">Car / Sedan</option>
-                    <option value="suv">SUV</option>
-                    <option value="pickup">Pickup</option>
-                    <option value="van">Van</option>
-                  </select>
-                </div>
-                <div style={{ marginBottom: '12px' }}>
-                  <label style={labelStyle}>Insurance cost (annual $, optional)</label>
-                  <input type="number" min="0" step="0.01" value={vehicleData.insuranceCost} onChange={(e) => setVehicleData((v) => ({ ...v, insuranceCost: e.target.value }))} style={inputStyle} />
-                </div>
-                <div style={{ marginBottom: '12px' }}>
-                  <label style={labelStyle}>Km runs (optional)</label>
-                  <input type="number" min="0" value={vehicleData.kmRuns} onChange={(e) => setVehicleData((v) => ({ ...v, kmRuns: e.target.value }))} style={inputStyle} />
-                </div>
-                <div>
-                  <label style={labelStyle}>Usage pattern % (highway / city / heavy)</label>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
-                    <input type="number" min="0" max="100" value={vehicleData.usagePattern?.highway ?? 50} onChange={(e) => setVehicleData((v) => ({ ...v, usagePattern: { ...v.usagePattern, highway: Number(e.target.value) } }))} placeholder="Highway" style={inputStyle} />
-                    <input type="number" min="0" max="100" value={vehicleData.usagePattern?.city ?? 40} onChange={(e) => setVehicleData((v) => ({ ...v, usagePattern: { ...v.usagePattern, city: Number(e.target.value) } }))} placeholder="City" style={inputStyle} />
-                    <input type="number" min="0" max="100" value={vehicleData.usagePattern?.heavy ?? 10} onChange={(e) => setVehicleData((v) => ({ ...v, usagePattern: { ...v.usagePattern, heavy: Number(e.target.value) } }))} placeholder="Heavy" style={inputStyle} />
+          <Section
+            num={11}
+            title={
+              formData.invoiceSystem === INVOICE_SYSTEM.MC
+                ? 'Person completing this form — identity & contact'
+                : 'Contact details'
+            }
+          >
+            {formData.invoiceSystem === INVOICE_SYSTEM.MC && (
+              <p style={{ fontSize: '14px', color: '#555', marginTop: 0, marginBottom: '16px', lineHeight: 1.5 }}>
+                Provide details for <strong>you</strong>, the person submitting this company setup (Maker–Checker model).
+              </p>
+            )}
+            {formData.invoiceSystem === INVOICE_SYSTEM.MC && (
+              <>
+                <label style={labelStyle}>Full legal name as on government-issued ID *</label>
+                <input
+                  type="text"
+                  name="mcPrimaryUserFullLegalName"
+                  value={formData.mcPrimaryUserFullLegalName}
+                  onChange={handleChange}
+                  required
+                  placeholder="Exactly as shown on your government-issued ID"
+                  style={{ ...inputStyle, paddingLeft: '12px' }}
+                />
+                <div style={{ marginTop: '20px' }}>
+                  <label style={labelStyle}>Address *</label>
+                  <div style={iconWrap}>
+                    <MapPin size={18} style={{ ...iconStyle, top: '16px', transform: 'none' }} />
+                    <textarea
+                      name="mcPrimaryUserAddress"
+                      value={formData.mcPrimaryUserAddress}
+                      onChange={handleChange}
+                      required
+                      rows={3}
+                      placeholder="Residential or mailing address (street, city, province, postal code)"
+                      style={{ ...inputStyle, paddingLeft: '44px' }}
+                    />
                   </div>
                 </div>
+              </>
+            )}
+            <label style={{ ...labelStyle, marginTop: formData.invoiceSystem === INVOICE_SYSTEM.MC ? '20px' : 0 }}>Email</label>
+            <div style={iconWrap}>
+              <Mail size={18} style={iconStyle} />
+              <input type="email" value={formData.email} readOnly style={{ ...inputStyle, background: '#f5f5f5', color: '#555' }} />
+            </div>
+            <p style={{ fontSize: '13px', color: '#666', marginBottom: '16px' }}>Same as your sign-in email.</p>
+            <label style={labelStyle}>Cell number *</label>
+            <div style={iconWrap}>
+              <Phone size={18} style={iconStyle} />
+              <input type="tel" name="phone" value={formData.phone} onChange={handleChange} required placeholder="+1 (555) 123-4567" style={inputStyle} />
+            </div>
+          </Section>
+          </>
+          )}
+
+          {wizardStep === 4 && (
+          <>
+          <Section num={12} title="Government-issued photo ID">
+            <p style={{ fontSize: '14px', color: '#555', marginTop: 0 }}>
+              Upload a clear copy of <strong>photo identification</strong> issued by a government (e.g. driver’s licence, passport) — image or PDF, max 10MB.
+            </p>
+            <input
+              type="file"
+              accept="image/*,application/pdf"
+              disabled={uploadBusy === 'governmentPhotoIdUrl'}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) uploadField('governmentPhotoIdUrl', 'id', f);
+                e.target.value = '';
+              }}
+            />
+            {uploadBusy === 'governmentPhotoIdUrl' && <span style={{ fontSize: '13px' }}> Uploading…</span>}
+            {formData.governmentPhotoIdUrl && (
+              <div style={{ marginTop: '8px' }}>
+                <a href={formData.governmentPhotoIdUrl} target="_blank" rel="noreferrer" style={{ fontSize: '14px', color: '#667eea' }}>View uploaded photo ID</a>
               </div>
             )}
-          </CollapsibleSection>
+          </Section>
 
-          <div style={{ display: 'flex', gap: '12px', marginTop: '32px' }}>
-            {!isEditing && (
-              <button type="button" onClick={() => navigate('/dashboard')} style={{ flex: 1, padding: '14px', background: 'white', color: '#666', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '16px', fontWeight: '600', cursor: 'pointer' }}>
-                Skip for now
+          <Section num={13} title="Proof of address">
+            <p style={{ fontSize: '14px', color: '#555', marginTop: 0 }}>
+              Upload a document showing your <strong>current address</strong> (e.g. utility bill, bank statement, lease — image or PDF, max 10MB).
+            </p>
+            <input
+              type="file"
+              accept="image/*,application/pdf"
+              disabled={uploadBusy === 'proofOfAddressUrl'}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) uploadField('proofOfAddressUrl', 'proof-address', f);
+                e.target.value = '';
+              }}
+            />
+            {uploadBusy === 'proofOfAddressUrl' && <span style={{ fontSize: '13px' }}> Uploading…</span>}
+            {formData.proofOfAddressUrl && (
+              <div style={{ marginTop: '8px' }}>
+                <a href={formData.proofOfAddressUrl} target="_blank" rel="noreferrer" style={{ fontSize: '14px', color: '#667eea' }}>View uploaded proof of address</a>
+              </div>
+            )}
+          </Section>
+
+          <Section num={14} title="Acknowledgement">
+            {formData.userTransactionRole ? (
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', cursor: 'pointer' }}>
+                <input type="checkbox" name="roleAcknowledgement" checked={formData.roleAcknowledgement} onChange={handleChange} style={{ marginTop: '4px' }} />
+                <span style={{ fontSize: '14px', lineHeight: 1.5 }}>{acknowledgementCopy(formData.userTransactionRole)}</span>
+              </label>
+            ) : (
+              <p style={{ fontSize: '14px', color: '#888', margin: 0 }}>
+                {!formData.invoiceSystem
+                  ? 'Select an invoicing model in section 8 first.'
+                  : 'Select your role (Maker or Checker) in section 10.'}
+              </p>
+            )}
+          </Section>
+          </>
+          )}
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginTop: '32px', alignItems: 'center' }}>
+            {wizardStep > 0 && (
+              <button type="button" onClick={goBack} style={{ padding: '14px 24px', background: 'white', color: '#333', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '16px', fontWeight: '600', cursor: 'pointer' }}>
+                Back
               </button>
             )}
-            <button type="submit" disabled={loading} style={{ flex: 2, padding: '14px', background: loading ? '#ccc' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', borderRadius: '8px', fontSize: '16px', fontWeight: '600', cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-              {loading ? 'Saving...' : <><CheckCircle size={20} />{isEditing ? 'Update profile' : 'Complete setup'}</>}
-            </button>
+            {!isEditing && (
+              <button
+                type="button"
+                onClick={skipThisStep}
+                title={
+                  wizardStep < WIZARD_PAGE_COUNT - 1
+                    ? 'Go to the next step without checking this page. You can use Back to return and complete fields later.'
+                    : 'Leave without saving. You can finish your profile later from the dashboard.'
+                }
+                style={{ padding: '14px 24px', background: 'white', color: '#666', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '16px', fontWeight: '600', cursor: 'pointer' }}
+              >
+                Skip this step
+              </button>
+            )}
+            <div style={{ flex: '1 1 120px' }} />
+            {wizardStep < WIZARD_PAGE_COUNT - 1 && (
+              <button type="button" onClick={goNext} style={{ padding: '14px 24px', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', borderRadius: '8px', fontSize: '16px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                Next
+                <span style={{ fontSize: '13px', opacity: 0.95 }}>(next: {wizardPointRange(wizardStep + 1)})</span>
+              </button>
+            )}
+            {wizardStep === WIZARD_PAGE_COUNT - 1 && (
+              <button type="submit" disabled={loading} style={{ padding: '14px 24px', background: loading ? '#ccc' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', borderRadius: '8px', fontSize: '16px', fontWeight: '600', cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                {loading ? 'Saving…' : <><CheckCircle size={20} />{isEditing ? 'Update profile' : 'Complete setup'}</>}
+              </button>
+            )}
           </div>
         </form>
       </div>

@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { User, MapPin, Mail, Phone, FileText, Upload, CheckCircle, AlertCircle, ArrowLeft, LayoutDashboard } from 'lucide-react';
-import { addCustomer, getCustomer, updateCustomer, uploadEngagementAgreement } from '../../services/customerService';
-
-const FREQUENCY_OPTIONS = ['Hourly', 'Daily', 'Weekly', 'Monthly'];
+import { CheckCircle, AlertCircle, ArrowLeft, LayoutDashboard } from 'lucide-react';
+import { addCustomer, getCustomer, updateCustomer } from '../../services/customerService';
 
 function CustomerProfile() {
   const navigate = useNavigate();
@@ -11,18 +9,14 @@ function CustomerProfile() {
   const isEdit = !!customerId;
 
   const [formData, setFormData] = useState({
+    entityType: 'individual',
+    businessName: '',
     customerName: '',
-    customerDob: '',
     serviceAddress: '',
     customerEmail: '',
     customerPhone: '',
-    typeOfService: '',
-    frequencyOfService: '',
-    hasEngagementAgreement: null,
-    engagementAgreementUrl: '',
     isPayorSameAsCustomer: null,
     payorName: '',
-    payorDob: '',
     payorRelationship: '',
     payorEmail: '',
     payorPhone: '',
@@ -40,7 +34,15 @@ function CustomerProfile() {
   const loadCustomer = async () => {
     const result = await getCustomer(customerId);
     if (result.success && result.data) {
-      setFormData((prev) => ({ ...prev, ...result.data }));
+      const d = result.data;
+      const entityType = d.entityType || (d.businessName ? 'business' : 'individual');
+      setFormData((prev) => ({
+        ...prev,
+        ...d,
+        entityType,
+        businessName: d.businessName ?? '',
+        customerName: d.customerName ?? '',
+      }));
     }
   };
 
@@ -53,55 +55,70 @@ function CustomerProfile() {
     setError('');
   };
 
-  const setYesNo = (field, value) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
-    if (field === 'isPayorSameAsCustomer' && value === true) {
-      setFormData((prev) => ({
+  const setPayorSame = (value) => {
+    setFormData((prev) => {
+      if (value !== true) return { ...prev, isPayorSameAsCustomer: value };
+      const primaryName =
+        prev.entityType === 'business' ? (prev.businessName || prev.customerName) : prev.customerName;
+      return {
         ...prev,
-        payorName: prev.customerName,
-        payorDob: prev.customerDob,
+        isPayorSameAsCustomer: value,
+        payorName: primaryName,
         payorEmail: prev.customerEmail,
         payorPhone: prev.customerPhone,
-      }));
-    }
-  };
-
-  const handleFileUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file || !customerId) return;
-    setError('');
-    const result = await uploadEngagementAgreement(customerId, file);
-    if (result.success) {
-      setFormData((prev) => ({ ...prev, engagementAgreementUrl: result.url }));
-    } else {
-      setError(result.error);
-    }
+      };
+    });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setSuccess('');
+    const entityType = formData.entityType || 'individual';
+    const bName = (formData.businessName || '').trim();
+    const cName = (formData.customerName || '').trim();
+    if (entityType === 'business' && !bName) {
+      setError('Business name is required.');
+      return;
+    }
+    if (entityType === 'individual' && !cName) {
+      setError('Customer name is required.');
+      return;
+    }
     if (!formData.customerEmail?.trim()) {
       setError('Customer email is required.');
       return;
     }
     if (formData.isPayorSameAsCustomer === false && !formData.payorEmail?.trim()) {
-      setError('Payor email is required when customer/patient and payor are different.');
+      setError('Payor email is required when customer and payor are different.');
       return;
     }
+    const payload = {
+      ...formData,
+      entityType,
+      businessName: entityType === 'business' ? bName : '',
+      customerName: entityType === 'business' ? bName : cName,
+      customerDob: '',
+      typeOfService: '',
+      frequencyOfService: '',
+      hasEngagementAgreement: null,
+      engagementAgreementUrl: '',
+      payorDob: '',
+    };
+
     setLoading(true);
     try {
       if (isEdit) {
-        const result = await updateCustomer(customerId, formData);
+        const { id: _docId, ...updatePayload } = payload;
+        const result = await updateCustomer(customerId, updatePayload);
         if (result.success) {
           setSuccess('Customer updated successfully.');
           setTimeout(() => navigate('/customers'), 1500);
         } else setError(result.error);
       } else {
-        const result = await addCustomer(formData);
+        const result = await addCustomer(payload);
         if (result.success) {
-          setSuccess('Customer added. You can add an engagement agreement below or go to Dashboard.');
+          setSuccess('Customer added.');
           setFormData((prev) => ({ ...prev, id: result.data.id }));
           if (result.data.id) navigate(`/customers/${result.data.id}`, { replace: true });
         } else setError(result.error);
@@ -128,10 +145,10 @@ function CustomerProfile() {
         </div>
 
         <h1 style={{ fontSize: '24px', fontWeight: '700', marginBottom: '8px' }}>
-          {isEdit ? 'Edit customer / patient' : 'New customer profile'}
+          {isEdit ? 'Edit customer' : 'New customer profile'}
         </h1>
         <p style={{ color: '#666', fontSize: '14px', marginBottom: '24px' }}>
-          Customer/patient and payor information for service and invoicing.
+          Customer and payor information for service and invoicing.
         </p>
 
         {error && (
@@ -147,16 +164,32 @@ function CustomerProfile() {
 
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: '20px' }}>
-            <label style={labelStyle}>Customer / patient name *</label>
-            <input type="text" name="customerName" value={formData.customerName} onChange={handleChange} required style={inputStyle} />
+            <label style={labelStyle} htmlFor="entityType">Entity *</label>
+            <select
+              id="entityType"
+              name="entityType"
+              value={formData.entityType}
+              onChange={handleChange}
+              style={inputStyle}
+            >
+              <option value="business">Business name</option>
+              <option value="individual">Customer name</option>
+            </select>
           </div>
-          <div style={{ marginBottom: '20px' }}>
-            <label style={labelStyle}>Date of birth</label>
-            <input type="date" name="customerDob" value={formData.customerDob} onChange={handleChange} style={inputStyle} />
-          </div>
+          {formData.entityType === 'business' ? (
+            <div style={{ marginBottom: '20px' }}>
+              <label style={labelStyle}>Business name *</label>
+              <input type="text" name="businessName" value={formData.businessName} onChange={handleChange} style={inputStyle} />
+            </div>
+          ) : (
+            <div style={{ marginBottom: '20px' }}>
+              <label style={labelStyle}>Customer name *</label>
+              <input type="text" name="customerName" value={formData.customerName} onChange={handleChange} style={inputStyle} />
+            </div>
+          )}
           <div style={{ marginBottom: '20px' }}>
             <label style={labelStyle}>Service address *</label>
-            <textarea name="serviceAddress" value={formData.serviceAddress} onChange={handleChange} required rows={2} style={inputStyle} />
+            <textarea name="serviceAddress" value={formData.serviceAddress} onChange={handleChange} required rows={3} style={inputStyle} placeholder="Street, city, province, postal code" />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
             <div>
@@ -168,49 +201,16 @@ function CustomerProfile() {
               <input type="tel" name="customerPhone" value={formData.customerPhone} onChange={handleChange} style={inputStyle} />
             </div>
           </div>
-          <div style={{ marginBottom: '20px' }}>
-            <label style={labelStyle}>Type of service</label>
-            <input type="text" name="typeOfService" value={formData.typeOfService} onChange={handleChange} placeholder="e.g. Personal care, Nursing" style={inputStyle} />
-          </div>
-          <div style={{ marginBottom: '20px' }}>
-            <label style={labelStyle}>Frequency of service</label>
-            <select name="frequencyOfService" value={formData.frequencyOfService} onChange={handleChange} style={inputStyle}>
-              <option value="">Select</option>
-              {FREQUENCY_OPTIONS.map((f) => (
-                <option key={f} value={f}>{f}</option>
-              ))}
-            </select>
-          </div>
 
           <div style={{ marginBottom: '20px' }}>
-            <label style={labelStyle}>Do you have a customer engagement agreement?</label>
+            <label style={labelStyle}>Is customer and payor the same? *</label>
             <div style={{ display: 'flex', gap: '16px' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                <input type="radio" checked={formData.hasEngagementAgreement === true} onChange={() => setYesNo('hasEngagementAgreement', true)} />
+                <input type="radio" checked={formData.isPayorSameAsCustomer === true} onChange={() => setPayorSame(true)} />
                 Yes
               </label>
               <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                <input type="radio" checked={formData.hasEngagementAgreement === false} onChange={() => setYesNo('hasEngagementAgreement', false)} />
-                No
-              </label>
-            </div>
-            {formData.hasEngagementAgreement === true && (
-              <div style={{ marginTop: '12px' }}>
-                <input type="file" accept="image/*,application/pdf" onChange={isEdit ? handleFileUpload : (e) => setError('Save customer first, then upload.')} style={{ marginTop: '8px' }} />
-                {formData.engagementAgreementUrl && <a href={formData.engagementAgreementUrl} target="_blank" rel="noreferrer" style={{ fontSize: '14px', color: '#667eea' }}> View uploaded</a>}
-              </div>
-            )}
-          </div>
-
-          <div style={{ marginBottom: '20px' }}>
-            <label style={labelStyle}>Is customer/patient and payor the same? *</label>
-            <div style={{ display: 'flex', gap: '16px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                <input type="radio" checked={formData.isPayorSameAsCustomer === true} onChange={() => setYesNo('isPayorSameAsCustomer', true)} />
-                Yes
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                <input type="radio" checked={formData.isPayorSameAsCustomer === false} onChange={() => setYesNo('isPayorSameAsCustomer', false)} />
+                <input type="radio" checked={formData.isPayorSameAsCustomer === false} onChange={() => setPayorSame(false)} />
                 No
               </label>
             </div>
@@ -223,11 +223,7 @@ function CustomerProfile() {
                 <input type="text" name="payorName" value={formData.payorName} onChange={handleChange} style={inputStyle} />
               </div>
               <div style={{ marginBottom: '20px' }}>
-                <label style={labelStyle}>Payor date of birth</label>
-                <input type="date" name="payorDob" value={formData.payorDob} onChange={handleChange} style={inputStyle} />
-              </div>
-              <div style={{ marginBottom: '20px' }}>
-                <label style={labelStyle}>Relationship to customer/patient</label>
+                <label style={labelStyle}>Relationship to customer</label>
                 <input type="text" name="payorRelationship" value={formData.payorRelationship} onChange={handleChange} placeholder="e.g. Spouse, Parent" style={inputStyle} />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>

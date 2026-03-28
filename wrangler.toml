@@ -7,6 +7,8 @@ main = "worker.js"
 [assets]
 directory = "./dist"
 
-# Add these in Cloudflare Dashboard → Workers & Pages → clicktobill → Settings → Variables:
-# - FIREBASE_API_KEY (same as VITE_FIREBASE_API_KEY, for token verification)
-# - RESEND_API_KEY (secret): npx wrangler secret put RESEND_API_KEY
+# Worker env vars (required for /api/send-email)
+# 1. Copy your VITE_FIREBASE_API_KEY from .env.production and paste it below (same value)
+# 2. Set RESEND_API_KEY as secret: npx wrangler secret put RESEND_API_KEY
+[vars]
+FIREBASE_API_KEY = "AIzaSyCZ4Vx2NDD3REkrAzThMfg0X5iYbQkB5d4"

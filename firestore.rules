@@ -29,12 +29,20 @@ service cloud.firestore {
     // Used by: companyService
     // -------------------------------------------------------------------
     match /companies/{companyId} {
-      allow read, update, delete: if request.auth != null && companyId == request.auth.uid;
+      // Owner: full access. Team member (maker/checker): read org company when users/{uid}.organizationOwnerId matches.
+      allow read: if request.auth != null && (
+        companyId == request.auth.uid
+        || (
+          exists(/databases/$(database)/documents/users/$(request.auth.uid))
+          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.organizationOwnerId == companyId
+        )
+      );
+      allow update, delete: if request.auth != null && companyId == request.auth.uid;
       allow create: if request.auth != null && companyId == request.auth.uid && request.resource.data.userId == request.auth.uid;
     }
 
     // -------------------------------------------------------------------
-    // CUSTOMERS - Worker's customer/patient records
+    // CUSTOMERS - Worker's customer records
     // Used by: customerService
     // -------------------------------------------------------------------
     match /customers/{docId} {

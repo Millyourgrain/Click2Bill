@@ -53,7 +53,7 @@ export const createVisit = async (visitData) => {
 };
 
 /**
- * Check in – set check-in time and optionally trigger email to patient & payor
+ * Check in – set check-in time and optionally trigger email to customer & payor
  */
 export const checkIn = async (visitId) => {
   try {
@@ -76,7 +76,7 @@ export const checkIn = async (visitId) => {
     const msg = `Worker checked in for service on ${data.serviceDate || 'scheduled date'}.`;
     if (data.payorEmail) await addNotificationForEmail(data.payorEmail, { type: 'check_in', title: 'Service check-in', body: msg, metadata: { visitId } });
     if (data.customerEmail && data.customerEmail !== data.payorEmail) await addNotificationForEmail(data.customerEmail, { type: 'check_in', title: 'Service check-in', body: msg, metadata: { visitId } });
-    return { success: true, data: { checkInTime: now }, message: 'Check-in recorded. Notification sent to patient and payor.' };
+    return { success: true, data: { checkInTime: now }, message: 'Check-in recorded. Notification sent to customer and payor.' };
   } catch (error) {
     console.error('Check-in error:', error);
     return { success: false, error: 'Failed to record check-in' };
@@ -84,7 +84,7 @@ export const checkIn = async (visitId) => {
 };
 
 /**
- * Check out – set check-out time and optionally trigger email to patient & payor
+ * Check out – set check-out time and optionally trigger email to customer & payor
  */
 export const checkOut = async (visitId) => {
   try {
@@ -107,7 +107,7 @@ export const checkOut = async (visitId) => {
     const msg = `Worker checked out after service on ${data.serviceDate || 'scheduled date'}.`;
     if (data.payorEmail) await addNotificationForEmail(data.payorEmail, { type: 'check_out', title: 'Service check-out', body: msg, metadata: { visitId } });
     if (data.customerEmail && data.customerEmail !== data.payorEmail) await addNotificationForEmail(data.customerEmail, { type: 'check_out', title: 'Service check-out', body: msg, metadata: { visitId } });
-    return { success: true, data: { checkOutTime: now }, message: 'Check-out recorded. Notification sent to patient and payor.' };
+    return { success: true, data: { checkOutTime: now }, message: 'Check-out recorded. Notification sent to customer and payor.' };
   } catch (error) {
     console.error('Check-out error:', error);
     return { success: false, error: 'Failed to record check-out' };

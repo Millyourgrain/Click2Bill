@@ -19,7 +19,7 @@ export const sendEmail = async ({ to, subject, text, html }) => {
     const user = auth.currentUser;
     if (!user) return { success: false, error: 'Not logged in' };
 
-    const token = await user.getIdToken();
+    const token = await user.getIdToken(true);
     const base = getApiBase();
     const res = await fetch(`${base}/api/send-email`, {
       method: 'POST',

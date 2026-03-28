@@ -4,7 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import RoleSelect from '../auth/RoleSelect';
 
 /**
- * "/" route: not logged in → Role Select (flowchart). Logged in → redirect to role-specific dashboard.
+ * "/" route: not logged in → company landing. Logged in → dashboard by role.
  */
 function LandingOrRedirect() {
   const { currentUser, userRole, loading } = useAuth();

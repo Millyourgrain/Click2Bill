@@ -3,7 +3,7 @@ import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage
 import { db, storage, auth } from '../firebase/config';
 
 /**
- * Save or update worker/company profile (full PSW profile)
+ * Save or update company profile (issuer / business details)
  */
 export const saveCompanyInfo = async (companyData) => {
   try {
@@ -13,42 +13,45 @@ export const saveCompanyInfo = async (companyData) => {
     const companyRef = doc(db, 'companies', user.uid);
     const companyDoc = await getDoc(companyRef);
 
+    const legal = companyData.legalBusinessName || companyData.companyName || '';
+    const articles =
+      companyData.verifyDocArticlesUrl || companyData.articlesOfIncorporationUrl || '';
+
     const dataToSave = {
       userId: user.uid,
-      // Basic
-      companyName: companyData.companyName || '',
-      legalBusinessName: companyData.legalBusinessName || companyData.companyName || '',
+      companyName: legal,
+      legalBusinessName: legal,
       operationalNameDba: companyData.operationalNameDba || '',
       companyAddress: companyData.companyAddress || '',
       email: companyData.email || user.email,
       phone: companyData.phone || '',
       logoUrl: companyData.logoUrl || '',
-      // Business structure (when working independently)
-      workingIndependently: companyData.workingIndependently ?? null,
       businessStructure: companyData.businessStructure || '',
-      articlesOfIncorporationUrl: companyData.articlesOfIncorporationUrl || '',
-      // Personal
-      name: companyData.name || '',
-      dateOfBirth: companyData.dateOfBirth || '',
-      provincialFederalId: companyData.provincialFederalId || '',
-      roleTypeOfService: companyData.roleTypeOfService || '',
-      roleTypeOther: companyData.roleTypeOther || '',
-      // Tax & payment
+      bnNumber: companyData.bnNumber || '',
+      verifyDocArticlesUrl: companyData.verifyDocArticlesUrl || '',
+      verifyDocGstHstUrl: companyData.verifyDocGstHstUrl || '',
+      verifyDocBankStatementUrl: companyData.verifyDocBankStatementUrl || '',
+      verifyDocObrUrl: companyData.verifyDocObrUrl || '',
+      verifyDocCraBnUrl: companyData.verifyDocCraBnUrl || '',
+      articlesOfIncorporationUrl: articles,
       gstNumber: companyData.gstNumber || '',
+      bankTransitNumber: companyData.bankTransitNumber || '',
+      bankInstitutionNumber: companyData.bankInstitutionNumber || '',
+      bankAccountNumber: companyData.bankAccountNumber || '',
+      invoiceSystem: companyData.invoiceSystem || '',
+      userTransactionRole: companyData.userTransactionRole || '',
+      eInvoiceIssuerName: companyData.eInvoiceIssuerName || '',
+      mcPrimaryUserFullLegalName: companyData.mcPrimaryUserFullLegalName || '',
+      mcPrimaryUserAddress: companyData.mcPrimaryUserAddress || '',
+      governmentPhotoIdUrl: companyData.governmentPhotoIdUrl || '',
+      proofOfAddressUrl: companyData.proofOfAddressUrl || '',
+      governmentIdUrl:
+        companyData.governmentPhotoIdUrl || companyData.governmentIdUrl || '',
+      roleAcknowledgement: !!companyData.roleAcknowledgement,
       bankingDetailsUrl: companyData.bankingDetailsUrl || '',
-      // Insurance
-      commercialLiabilityInsurance: companyData.commercialLiabilityInsurance ?? null,
-      commercialLiabilityPolicyUrl: companyData.commercialLiabilityPolicyUrl || '',
-      commercialLiabilityInterested: companyData.commercialLiabilityInterested ?? null,
-      generalLiabilityInsurance: companyData.generalLiabilityInsurance ?? null,
-      generalLiabilityPolicyUrl: companyData.generalLiabilityPolicyUrl || '',
-      generalLiabilityInterested: companyData.generalLiabilityInterested ?? null,
-      insuranceAcknowledgement: companyData.insuranceAcknowledgement || false,
-      // WSIB
-      wsibCoverage: companyData.wsibCoverage || '',
-      // Travel
-      quoteTravelCostOnInvoice: companyData.quoteTravelCostOnInvoice ?? null,
-      vehicleDetails: companyData.vehicleDetails || null,
+      authSoleSignatoryConfirmed: !!companyData.authSoleSignatoryConfirmed,
+      mcInviteeCount: typeof companyData.mcInviteeCount === 'number' ? companyData.mcInviteeCount : Number(companyData.mcInviteeCount) || 0,
+      mcInvitees: Array.isArray(companyData.mcInvitees) ? companyData.mcInvitees : [],
       updatedAt: new Date().toISOString(),
     };
 
@@ -66,9 +69,9 @@ export const saveCompanyInfo = async (companyData) => {
 };
 
 /**
- * Get company/worker profile for current user
+ * companies/{auth.uid} only — used by the company setup wizard (not the org owner’s doc for team members).
  */
-export const getCompanyInfo = async () => {
+export const getOwnCompanyDocument = async () => {
   try {
     const user = auth.currentUser;
     if (!user) return { success: false, error: 'User not authenticated' };
@@ -80,6 +83,34 @@ export const getCompanyInfo = async () => {
       return { success: true, data: null, message: 'No profile found' };
     }
     return { success: true, data: companyDoc.data() };
+  } catch (error) {
+    console.error('Get own company error:', error);
+    return { success: false, error: 'Failed to retrieve profile' };
+  }
+};
+
+/**
+ * Get company profile for current user (owner doc, or organization owner's doc for maker/checker members).
+ */
+export const getCompanyInfo = async () => {
+  try {
+    const user = auth.currentUser;
+    if (!user) return { success: false, error: 'User not authenticated' };
+
+    const userSnap = await getDoc(doc(db, 'users', user.uid));
+    const organizationOwnerId =
+      userSnap.exists() && userSnap.data().organizationOwnerId
+        ? userSnap.data().organizationOwnerId
+        : null;
+    const companyDocId = organizationOwnerId || user.uid;
+
+    const companyRef = doc(db, 'companies', companyDocId);
+    const companyDoc = await getDoc(companyRef);
+
+    if (!companyDoc.exists()) {
+      return { success: true, data: null, message: 'No profile found' };
+    }
+    return { success: true, data: companyDoc.data(), companyDocumentUserId: companyDocId };
   } catch (error) {
     console.error('Get company error:', error);
     return { success: false, error: 'Failed to retrieve profile' };
@@ -105,6 +136,13 @@ const uploadFile = async (file, folder, filenamePrefix) => {
   await uploadBytes(storageRef, file);
   const downloadURL = await getDownloadURL(storageRef);
   return { success: true, url: downloadURL, path: `${folder}/${user.uid}/${filename}` };
+};
+
+/**
+ * Upload a file to Storage only (returns URL). Safe before company Firestore doc exists.
+ */
+export const uploadBinaryForSetup = async (file, storagePath, filenamePrefix) => {
+  return uploadFile(file, storagePath, filenamePrefix);
 };
 
 /**

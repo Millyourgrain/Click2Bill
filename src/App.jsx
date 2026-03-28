@@ -52,7 +52,7 @@ function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/register-customer" element={<RegisterCustomer />} />
 
-          {/* Worker-only routes */}
+          {/* Company (issuer) routes */}
           <Route
             path="/dashboard"
             element={
@@ -78,7 +78,7 @@ function App() {
           <Route path="/customers/:customerId" element={<ProtectedRoute allowedRoles={['worker', 'user', 'admin']}><CustomerProfile /></ProtectedRoute>} />
           <Route path="/schedule" element={<ProtectedRoute allowedRoles={['worker', 'user', 'admin']}><ServiceSchedule /></ProtectedRoute>} />
 
-          {/* Customer/Payor-only routes */}
+          {/* Invoice recipient (customer role) routes */}
           <Route path="/customer-dashboard" element={<ProtectedRoute allowedRoles={['customer']}><CustomerDashboard /></ProtectedRoute>} />
           <Route path="/customer-profile-setup" element={<ProtectedRoute allowedRoles={['customer']}><CustomerProfileSetup /></ProtectedRoute>} />
           <Route path="/customer/invoice/:invoiceId" element={<ProtectedRoute allowedRoles={['customer']}><CustomerInvoiceView /></ProtectedRoute>} />

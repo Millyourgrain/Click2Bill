@@ -4,18 +4,36 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
-const apiKey = import.meta.env.VITE_FIREBASE_API_KEY?.trim();
-const authDomain = import.meta.env.VITE_FIREBASE_AUTH_DOMAIN?.trim();
-const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID?.trim();
-const storageBucket = import.meta.env.VITE_FIREBASE_STORAGE_BUCKET?.trim();
-const messagingSenderId = import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID?.trim();
-const appId = import.meta.env.VITE_FIREBASE_APP_ID?.trim();
+const envMap = {
+  VITE_FIREBASE_API_KEY: import.meta.env.VITE_FIREBASE_API_KEY?.trim(),
+  VITE_FIREBASE_AUTH_DOMAIN: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN?.trim(),
+  VITE_FIREBASE_PROJECT_ID: import.meta.env.VITE_FIREBASE_PROJECT_ID?.trim(),
+  VITE_FIREBASE_STORAGE_BUCKET: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET?.trim(),
+  VITE_FIREBASE_MESSAGING_SENDER_ID: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID?.trim(),
+  VITE_FIREBASE_APP_ID: import.meta.env.VITE_FIREBASE_APP_ID?.trim(),
+};
 
-if (!apiKey || !authDomain || !projectId || !storageBucket || !messagingSenderId || !appId) {
+const missing = Object.entries(envMap)
+  .filter(([, v]) => !v)
+  .map(([k]) => k);
+
+if (missing.length) {
   throw new Error(
-    'Firebase env missing. For dev use .env; for production builds use .env.production or set VITE_FIREBASE_* on your host before npm run build.'
+    `Firebase env missing (${missing.join(', ')}). ` +
+      'Vite bakes these in at build time — they are not read from Cloudflare at runtime. ' +
+      'Local: add a .env (npm run dev) or .env.production (npm run build); copy from .env.example. ' +
+      'GitHub → Cloudflare: set matching repository Actions secrets (see .github/workflows/deploy-cloudflare.yml).'
   );
 }
+
+const [apiKey, authDomain, projectId, storageBucket, messagingSenderId, appId] = [
+  envMap.VITE_FIREBASE_API_KEY,
+  envMap.VITE_FIREBASE_AUTH_DOMAIN,
+  envMap.VITE_FIREBASE_PROJECT_ID,
+  envMap.VITE_FIREBASE_STORAGE_BUCKET,
+  envMap.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  envMap.VITE_FIREBASE_APP_ID,
+];
 
 const firebaseConfig = {
   apiKey,

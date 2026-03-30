@@ -23,6 +23,7 @@ import Dashboard from './components/dashboard/Dashboard';
 
 // Invoice & Travel
 import InvoiceGenerator from './components/invoice/InvoiceGenerator';
+import WorkerInvoiceDetail from './components/invoice/WorkerInvoiceDetail';
 import DistanceDashboard from './components/travel/DistanceDashboard';
 
 // Customer (payor) dashboard & invoice view
@@ -71,6 +72,7 @@ function App() {
           />
 
           <Route path="/invoice" element={<ProtectedRoute allowedRoles={['worker', 'user', 'admin']}><InvoiceGenerator travelCostItem={travelCostItem} onTravelCostConsumed={handleTravelCostConsumed} /></ProtectedRoute>} />
+          <Route path="/invoices/:invoiceId" element={<ProtectedRoute allowedRoles={['worker', 'user', 'admin']}><WorkerInvoiceDetail /></ProtectedRoute>} />
           <Route path="/travel" element={<ProtectedRoute allowedRoles={['worker', 'user', 'admin']}><DistanceDashboard onAddToInvoice={handleAddToInvoice} /></ProtectedRoute>} />
 
           <Route path="/customers" element={<ProtectedRoute allowedRoles={['worker', 'user', 'admin']}><CustomerList /></ProtectedRoute>} />
@@ -82,6 +84,8 @@ function App() {
           <Route path="/customer-dashboard" element={<ProtectedRoute allowedRoles={['customer']}><CustomerDashboard /></ProtectedRoute>} />
           <Route path="/customer-profile-setup" element={<ProtectedRoute allowedRoles={['customer']}><CustomerProfileSetup /></ProtectedRoute>} />
           <Route path="/customer/invoice/:invoiceId" element={<ProtectedRoute allowedRoles={['customer']}><CustomerInvoiceView /></ProtectedRoute>} />
+          {/* Email link: no account required — token in ?t= matches invoice.portalToken */}
+          <Route path="/invoice/view/:invoiceId" element={<CustomerInvoiceView publicPortal />} />
 
           <Route path="/" element={<LandingOrRedirect />} />
           <Route path="*" element={<HomeRedirect />} />

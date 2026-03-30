@@ -38,6 +38,27 @@ export const addNotification = async (payload) => {
 };
 
 /**
+ * Notify billing org owner and invoice creator (e.g. accept/contest alerts for makers).
+ */
+export const notifyInvoiceOrgMembers = async (invoice, { type, title, body, link, metadata }) => {
+  const invoiceId = invoice?.id || '';
+  const targets = new Set();
+  if (invoice?.userId) targets.add(invoice.userId);
+  if (invoice?.createdByUid) targets.add(invoice.createdByUid);
+  const defaultLink = invoiceId ? `/invoices/${invoiceId}` : '/dashboard';
+  for (const userId of targets) {
+    await addNotification({
+      userId,
+      type,
+      title,
+      body,
+      link: link || defaultLink,
+      metadata: { invoiceId, ...(metadata || {}) },
+    });
+  }
+};
+
+/**
  * Add notification for a user identified by email (e.g. customer/payor)
  */
 export const addNotificationForEmail = async (email, payload) => {

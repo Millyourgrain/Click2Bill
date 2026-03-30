@@ -147,13 +147,13 @@ function ServiceSchedule() {
   if (loading) {
     return (
       <div style={{ padding: '40px', textAlign: 'center' }}>
-        <div style={{ width: '48px', height: '48px', border: '4px solid #e0e0e0', borderTopColor: '#667eea', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto' }} />
+        <div style={{ width: '48px', height: '48px', border: '4px solid #e0e0e0', borderTopColor: 'var(--gold)', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto' }} />
       </div>
     );
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f5f5f5', padding: '24px' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--cream)', padding: '24px' }}>
       <div style={{ maxWidth: '800px', margin: '0 auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
           <h1 style={{ fontSize: '24px', fontWeight: '700', margin: 0 }}>Schedule service</h1>
@@ -191,7 +191,7 @@ function ServiceSchedule() {
               <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '14px' }}>Service date</label>
               <input type="date" value={serviceDate} onChange={(e) => setServiceDate(e.target.value)} required style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px' }} />
             </div>
-            <button type="submit" disabled={actionLoading === 'create' || customers.length === 0} style={{ padding: '10px 20px', background: (actionLoading === 'create' || customers.length === 0) ? '#ccc' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', borderRadius: '8px', cursor: (actionLoading === 'create' || customers.length === 0) ? 'not-allowed' : 'pointer', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button type="submit" disabled={actionLoading === 'create' || customers.length === 0} style={{ padding: '10px 20px', background: (actionLoading === 'create' || customers.length === 0) ? '#ccc' : 'linear-gradient(135deg, var(--navy) 0%, var(--navy-700) 100%)', color: 'white', border: 'none', borderRadius: '8px', cursor: (actionLoading === 'create' || customers.length === 0) ? 'not-allowed' : 'pointer', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Plus size={18} /> Schedule visit
             </button>
           </form>

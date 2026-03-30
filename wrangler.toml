@@ -1,6 +1,22 @@
 # Click2Bill — Cloudflare Worker + static assets (Vite dist)
 # Docs: https://developers.cloudflare.com/workers/wrangler/configuration/
 #
+# ---------------------------------------------------------------------------
+# SYNC: GitHub → Cloudflare
+#
+# Wrangler does not push to Git — you commit and push as usual:
+#   git add . && git commit -m "…" && git push origin main
+#
+# Continuous deploy: pushing to branch `main` runs GitHub Actions
+#   .github/workflows/deploy-cloudflare.yml
+# which runs `npm ci`, `npm run build`, then `wrangler deploy` with your
+# Cloudflare + Vite secrets. Configure those under the repo → Settings →
+# Secrets and variables → Actions (see the workflow file header for the list).
+#
+# Manual deploy (same as CI): npm run build && npx wrangler deploy
+#   (pass --var FIREBASE_API_KEY:YOUR_KEY if [vars] below is still a placeholder)
+# ---------------------------------------------------------------------------
+#
 # PRODUCTION CHECKLIST (local works, Cloudflare fails — verify each):
 # 1) Build with real Firebase env: copy .env.production values, run `npm run build`
 #    (VITE_* are baked into dist/; Cloudflare never injects them at request time.)
@@ -17,12 +33,16 @@
 
 name = "click2bill"
 main = "worker.js"
-compatibility_date = "2024-11-01"
+# 2025-04-01+ enables navigation requests to prefer static assets (SPA index.html) without always invoking this Worker — fewer edge failures. See:
+# https://developers.cloudflare.com/workers/static-assets/routing/single-page-application/
+compatibility_date = "2025-04-01"
 
 # Vite build output (run `npm run build` before `wrangler deploy`)
-# SPA: deep links (/dashboard, /login) must serve index.html — otherwise Cloudflare 404s.
+# SPA: deep links (/dashboard, /customer/invoice/...) must serve index.html — otherwise Cloudflare 404s.
+# binding = "ASSETS" is required for env.ASSETS in worker.js; without it, fetches throw and Cloudflare shows Error 1101.
 [assets]
 directory = "./dist"
+binding = "ASSETS"
 not_found_handling = "single-page-application"
 
 # ---------------------------------------------------------------------------

@@ -47,8 +47,8 @@ function RegisterCustomer() {
     setLoading(false);
   };
 
-  const base = { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #0d9488 0%, #0f766e 100%)', padding: '40px 20px' };
-  const card = { background: 'white', padding: '48px', borderRadius: '16px', boxShadow: '0 20px 60px rgba(0,0,0,0.2)', width: '100%', maxWidth: '520px' };
+  const base = { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--cream)', padding: '40px 20px' };
+  const card = { background: 'var(--white)', padding: '48px', borderRadius: '16px', border: '1px solid var(--cream-mid)', boxShadow: 'var(--portal-shadow)', width: '100%', maxWidth: '520px' };
   const labelStyle = { display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '14px', color: '#333' };
   const inputStyle = { width: '100%', padding: '12px 12px 12px 44px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '15px' };
   const iconWrap = { position: 'relative' };
@@ -57,10 +57,10 @@ function RegisterCustomer() {
     <div style={base}>
       <div style={card}>
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <div style={{ width: '80px', height: '80px', background: 'linear-gradient(135deg, #0d9488 0%, #0f766e 100%)', borderRadius: '50%', margin: '0 auto 16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: '80px', height: '80px', background: 'linear-gradient(135deg, var(--navy) 0%, var(--navy-700) 100%)', borderRadius: '50%', margin: '0 auto 16px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--gold)' }}>
             <UserPlus size={40} color="white" />
           </div>
-          <h1 style={{ fontSize: '28px', fontWeight: '700', marginBottom: '8px', color: '#1a1a1a' }}>Customer / Payor sign up</h1>
+          <h1 style={{ fontSize: '28px', fontWeight: '700', marginBottom: '8px', color: 'var(--navy)' }}>Customer / Payor sign up</h1>
           <p style={{ color: '#666', fontSize: '15px' }}>Create your account on the e-invoicing platform</p>
         </div>
 
@@ -107,14 +107,14 @@ function RegisterCustomer() {
               <input type="password" name="confirmPassword" value={formData.confirmPassword} onChange={handleChange} required placeholder="••••••••" style={inputStyle} />
             </div>
           </div>
-          <button type="submit" disabled={loading} style={{ width: '100%', padding: '14px', background: loading ? '#ccc' : 'linear-gradient(135deg, #0d9488 0%, #0f766e 100%)', color: 'white', border: 'none', borderRadius: '8px', fontSize: '16px', fontWeight: '600', cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+          <button type="submit" disabled={loading} style={{ width: '100%', padding: '14px', background: loading ? '#ccc' : 'var(--navy)', color: 'white', border: 'none', borderRadius: '8px', fontSize: '16px', fontWeight: '600', cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
             {loading ? 'Creating account...' : <><CheckCircle size={20} /> Create account</>}
           </button>
         </form>
 
         <div style={{ marginTop: '24px', paddingTop: '24px', borderTop: '1px solid #e0e0e0', textAlign: 'center' }}>
           <p style={{ fontSize: '14px', color: '#666' }}>
-            Already have an account? <Link to="/login" style={{ color: '#0d9488', textDecoration: 'none', fontWeight: '600' }}>Sign in</Link>
+            Already have an account? <Link to="/login" style={{ color: 'var(--gold-dark)', textDecoration: 'none', fontWeight: '600' }}>Sign in</Link>
           </p>
         </div>
       </div>

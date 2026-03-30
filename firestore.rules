@@ -6,7 +6,11 @@
 // Firebase Console → Firestore Database → Rules → replace all → Publish
 //
 // Collections: users, companies, customers, visits, invoices, travelRecords,
-//              customerProfiles, notifications, serviceProviders, serviceAppointments
+//              invoiceDeletions, customerProfiles, notifications
+//
+// Customers (payors) primarily use the email link (/invoice/view?…t=…): Firestore allows
+// get on invoices that have portalToken, and guest updates only for accept / contest / view / pay fields.
+// Logged-in customers with matching customerEmail/payorEmail may still read/update those invoices.
 //
 // =====================================================================
 
@@ -23,6 +27,18 @@ service cloud.firestore {
           && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.organizationOwnerId == billingUserId
         )
       );
+    }
+
+    // Guest with secret link: ?t= must match stored portalToken in app; read allowed only if invoice was issued with a portal token.
+    function invoicePortalGuestUpdateOk() {
+      return request.auth == null
+        && resource.data.portalToken is string
+        && resource.data.portalToken.size() >= 16
+        && request.resource.data.portalToken == resource.data.portalToken
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.invoiceNumber == resource.data.invoiceNumber
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['status', 'viewedAt', 'acceptedAt', 'customerCommentary', 'paidAt', 'paymentReference', 'updatedAt']);
     }
 
     // -------------------------------------------------------------------
@@ -79,11 +95,19 @@ service cloud.firestore {
     // -------------------------------------------------------------------
     match /invoices/{docId} {
       allow create: if request.auth != null && isOrgTeamMemberFor(request.resource.data.userId);
-      allow read, update: if request.auth != null && (
-        isOrgTeamMemberFor(resource.data.userId)
-        || resource.data.customerEmail == request.auth.token.email
-        || resource.data.payorEmail == request.auth.token.email
-      );
+      allow get: if (request.auth != null && (
+          isOrgTeamMemberFor(resource.data.userId)
+          || resource.data.customerEmail == request.auth.token.email
+          || resource.data.payorEmail == request.auth.token.email
+        ))
+        || (resource.data.portalToken is string && resource.data.portalToken.size() >= 16);
+      allow list: if request.auth != null;
+      allow update: if (request.auth != null && (
+          isOrgTeamMemberFor(resource.data.userId)
+          || resource.data.customerEmail == request.auth.token.email
+          || resource.data.payorEmail == request.auth.token.email
+        ))
+        || invoicePortalGuestUpdateOk();
       allow delete: if request.auth != null && isOrgTeamMemberFor(resource.data.userId);
     }
 
@@ -116,21 +140,13 @@ service cloud.firestore {
     }
 
     // -------------------------------------------------------------------
-    // SERVICE PROVIDERS - Customer's list of providers (PSW, RN, etc.)
-    // Used by: serviceProviderService (customer only)
+    // INVOICE DELETION AUDIT - written before invoice doc is deleted
     // -------------------------------------------------------------------
-    match /serviceProviders/{docId} {
-      allow create: if request.auth != null && request.resource.data.customerUserId == request.auth.uid;
-      allow read, update, delete: if request.auth != null && resource.data.customerUserId == request.auth.uid;
+    match /invoiceDeletions/{docId} {
+      allow create: if request.auth != null && isOrgTeamMemberFor(request.resource.data.billingUserId);
+      allow read: if request.auth != null && isOrgTeamMemberFor(resource.data.billingUserId);
+      allow update, delete: if false;
     }
 
-    // -------------------------------------------------------------------
-    // SERVICE APPOINTMENTS - Customer's appointments with providers
-    // Used by: serviceAppointmentService (customer only)
-    // -------------------------------------------------------------------
-    match /serviceAppointments/{docId} {
-      allow create: if request.auth != null && request.resource.data.customerUserId == request.auth.uid;
-      allow read, update, delete: if request.auth != null && resource.data.customerUserId == request.auth.uid;
-    }
   }
 }

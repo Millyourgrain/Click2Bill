@@ -51,14 +51,14 @@ function CustomerList() {
   if (loading) {
     return (
       <div style={{ padding: '40px', textAlign: 'center' }}>
-        <div style={{ width: '48px', height: '48px', border: '4px solid #e0e0e0', borderTopColor: '#667eea', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 16px' }} />
+        <div style={{ width: '48px', height: '48px', border: '4px solid var(--cream-mid)', borderTopColor: 'var(--gold)', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 16px' }} />
         Loading customers...
       </div>
     );
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f5f5f5', padding: '24px' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--cream)', padding: '24px' }}>
       <div style={{ maxWidth: '900px', margin: '0 auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
           <h1 style={{ fontSize: '24px', fontWeight: '700', margin: 0 }}>Customers</h1>
@@ -71,7 +71,7 @@ function CustomerList() {
             </button>
             <button
             onClick={() => navigate('/customers/new')}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 20px', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 20px', background: 'linear-gradient(135deg, var(--navy) 0%, var(--navy-700) 100%)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}
           >
             <UserPlus size={20} /> Add customer
           </button>
@@ -86,7 +86,7 @@ function CustomerList() {
           <div style={{ background: 'white', padding: '48px', borderRadius: '12px', textAlign: 'center', color: '#666' }}>
             <User size={48} style={{ marginBottom: '16px', opacity: 0.5 }} />
             <p style={{ marginBottom: '16px' }}>No customers yet. Add one to get started.</p>
-            <button onClick={() => navigate('/customers/new')} style={{ padding: '12px 24px', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}>
+            <button onClick={() => navigate('/customers/new')} style={{ padding: '12px 24px', background: 'var(--navy)', color: 'white', border: '2px solid var(--gold)', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}>
               Add customer
             </button>
           </div>
@@ -106,7 +106,7 @@ function CustomerList() {
                   <button
                     onClick={() => sendSignupLink(c)}
                     disabled={sendingTo === (c.payorEmail || c.customerEmail)}
-                    style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', background: '#f0fdfa', color: '#0d9488', border: '1px solid #0d9488', borderRadius: '6px', cursor: sendingTo ? 'wait' : 'pointer', fontSize: '14px', opacity: sendingTo ? 0.7 : 1 }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', background: 'var(--cream-dark)', color: 'var(--navy)', border: '1px solid var(--gold)', borderRadius: '6px', cursor: sendingTo ? 'wait' : 'pointer', fontSize: '14px', opacity: sendingTo ? 0.7 : 1 }}
                   >
                     <Mail size={16} /> {sendingTo === (c.payorEmail || c.customerEmail) ? 'Sending...' : 'Send sign-up link'}
                   </button>

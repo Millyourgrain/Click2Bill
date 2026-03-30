@@ -141,7 +141,7 @@ function CustomerProfileSetup() {
 
   const block = (id, title, children) => (
     <div key={id} style={{ marginBottom: '16px', border: '1px solid #e0e0e0', borderRadius: '12px', overflow: 'hidden' }}>
-      <button type="button" onClick={() => setSection(section === id ? null : id)} style={{ width: '100%', padding: '16px 20px', background: '#f0fdfa', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', fontSize: '16px', fontWeight: '600' }}>
+      <button type="button" onClick={() => setSection(section === id ? null : id)} style={{ width: '100%', padding: '16px 20px', background: 'var(--cream-dark)', color: 'var(--text-primary)', border: 'none', borderBottom: section === id ? '2px solid var(--gold-soft)' : '1px solid var(--cream-mid)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', fontSize: '16px', fontWeight: '600' }}>
         {title}
         {section === id ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
       </button>
@@ -153,7 +153,7 @@ function CustomerProfileSetup() {
   const input = { width: '100%', padding: '12px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '15px' };
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f0fdfa', padding: '24px' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--cream)', padding: '24px' }}>
       <div style={{ maxWidth: '720px', margin: '0 auto', background: 'white', borderRadius: '16px', padding: '32px', boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}>
         <h1 style={{ fontSize: '24px', fontWeight: '700', marginBottom: '8px' }}>Customer / Payor profile</h1>
         <p style={{ color: '#666', fontSize: '14px', marginBottom: '24px' }}>Complete your details for the e-invoicing platform.</p>
@@ -258,7 +258,7 @@ function CustomerProfileSetup() {
                 {formData.serviceAgreementInPlace === true && (
                   <div>
                     <input type="file" accept="image/*,application/pdf" onChange={handleAgreementUpload} />
-                    {formData.serviceAgreementUrl && <a href={formData.serviceAgreementUrl} target="_blank" rel="noreferrer" style={{ marginLeft: '8px', fontSize: '14px', color: '#0d9488' }}>View uploaded</a>}
+                    {formData.serviceAgreementUrl && <a href={formData.serviceAgreementUrl} target="_blank" rel="noreferrer" style={{ marginLeft: '8px', fontSize: '14px', color: 'var(--gold-dark)' }}>View uploaded</a>}
                   </div>
                 )}
               </div>
@@ -376,7 +376,7 @@ function CustomerProfileSetup() {
 
           <div style={{ marginTop: '24px', display: 'flex', gap: '12px' }}>
             <button type="button" onClick={() => navigate('/customer-dashboard')} style={{ padding: '12px 24px', background: '#f1f5f9', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}>Skip for now</button>
-            <button type="submit" disabled={loading} style={{ padding: '12px 24px', background: loading ? '#94a3b8' : 'linear-gradient(135deg, #0d9488 0%, #0f766e 100%)', color: 'white', border: 'none', borderRadius: '8px', cursor: loading ? 'not-allowed' : 'pointer', fontWeight: '600' }}>
+            <button type="submit" disabled={loading} style={{ padding: '12px 24px', background: loading ? '#94a3b8' : 'var(--gradient-navy)', color: 'var(--cream)', border: loading ? 'none' : '1px solid var(--gold)', borderRadius: '8px', cursor: loading ? 'not-allowed' : 'pointer', fontWeight: '600' }}>
               {loading ? 'Saving...' : 'Save and go to dashboard'}
             </button>
           </div>

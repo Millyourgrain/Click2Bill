@@ -10,30 +10,48 @@ function RoleSelect() {
 
   const cardStyle = {
     padding: '32px 24px',
-    background: 'white',
+    background: 'var(--white)',
     borderRadius: '16px',
-    boxShadow: '0 8px 24px rgba(0,0,0,0.1)',
+    boxShadow: 'var(--portal-shadow)',
     textAlign: 'center',
     cursor: 'pointer',
-    border: '3px solid transparent',
+    border: '2px solid var(--cream-mid)',
     transition: 'all 0.2s ease',
     maxWidth: '420px',
   };
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #1e3a5f 0%, #0d9488 100%)',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: '24px',
-    }}>
-      <h1 style={{ color: 'white', fontSize: '28px', fontWeight: '700', marginBottom: '8px', textAlign: 'center' }}>
+    <div
+      style={{
+        minHeight: '100vh',
+        background: 'var(--cream)',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '24px',
+      }}
+    >
+      <h1
+        style={{
+          color: 'var(--navy)',
+          fontSize: '28px',
+          fontWeight: '700',
+          marginBottom: '8px',
+          textAlign: 'center',
+        }}
+      >
         E-Invoicing Platform
       </h1>
-      <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: '16px', marginBottom: '40px', textAlign: 'center' }}>
+      <p
+        style={{
+          color: 'var(--text-muted)',
+          fontSize: '16px',
+          marginBottom: '40px',
+          textAlign: 'center',
+          maxWidth: '440px',
+        }}
+      >
         Create invoices and manage your business in one place
       </p>
 
@@ -45,26 +63,52 @@ function RoleSelect() {
           onKeyDown={(e) => e.key === 'Enter' && navigate('/register')}
           style={cardStyle}
           onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = '#0d9488';
+            e.currentTarget.style.borderColor = 'var(--gold)';
             e.currentTarget.style.transform = 'translateY(-4px)';
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = 'transparent';
+            e.currentTarget.style.borderColor = 'var(--cream-mid)';
             e.currentTarget.style.transform = 'translateY(0)';
           }}
         >
-          <div style={{ width: '64px', height: '64px', background: '#ccfbf1', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-            <Building2 size={32} color="#0d9488" />
+          <div
+            style={{
+              width: '64px',
+              height: '64px',
+              background: 'var(--gold-soft)',
+              borderRadius: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 16px',
+              border: '1px solid var(--gold)',
+            }}
+          >
+            <Building2 size={32} color="var(--navy)" />
           </div>
-          <h2 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '8px', color: '#1a1a1a' }}>Register your company</h2>
-          <p style={{ fontSize: '14px', color: '#666', margin: 0 }}>Set up your company profile, customers, and invoicing.</p>
+          <h2 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '8px', color: 'var(--navy)' }}>
+            Register your company
+          </h2>
+          <p style={{ fontSize: '14px', color: 'var(--text-muted)', margin: 0 }}>
+            Set up your company profile, customers, and invoicing.
+          </p>
         </div>
       </div>
 
-      <p style={{ marginTop: '32px', color: 'rgba(255,255,255,0.85)', fontSize: '14px', textAlign: 'center' }}>
+      <p style={{ marginTop: '32px', color: 'var(--text-muted)', fontSize: '14px', textAlign: 'center' }}>
         Already have an account?{' '}
-        <a href="/login" style={{ color: 'white', fontWeight: '600' }} onClick={(e) => { e.preventDefault(); navigate('/login'); }}>Sign in</a>
-        {' '}· Paying an invoice? Sign in with the email on your invoice.
+        <a
+          href="/login"
+          style={{ color: 'var(--gold-dark)', fontWeight: '600' }}
+          onClick={(e) => {
+            e.preventDefault();
+            navigate('/login');
+          }}
+        >
+          Sign in
+        </a>
+        {' '}
+        · Paying an invoice? Sign in with the email on your invoice.
       </p>
     </div>
   );

@@ -5,9 +5,11 @@
 // HOW TO APPLY:
 // Firebase Console → Storage → Rules → replace and Publish
 //
-// Path structure:
-//   logos/{userId}/           - Company/worker logos
-//   documents/{userId}/       - Void cheque, insurance, engagement agreements, etc.
+// Path structure (workers / org billing user only — not used by payors on the invoice email portal):
+//   logos/{userId}/                  - Company/worker logos
+//   documents/{userId}/              - Void cheque, insurance, engagement agreements, etc.
+//   businessVerification/{userId}/   - Optional CRA / business verification uploads
+//   identityDocuments/{userId}/      - Optional government ID & proof of address
 //
 // =====================================================================
 
@@ -36,6 +38,14 @@ service firebase.storage {
 
     // Wizard uploads before company doc is complete; path userId = org billing uid.
     match /companySetup/{userId}/{allPaths=**} {
+      allow read, write: if isOrgMemberForPathOwner(userId);
+    }
+
+    match /businessVerification/{userId}/{allPaths=**} {
+      allow read, write: if isOrgMemberForPathOwner(userId);
+    }
+
+    match /identityDocuments/{userId}/{allPaths=**} {
       allow read, write: if isOrgMemberForPathOwner(userId);
     }
   }

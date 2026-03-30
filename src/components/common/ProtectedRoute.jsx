@@ -1,5 +1,5 @@
 import React from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 
 /**
@@ -9,12 +9,13 @@ import { useAuth } from '../../contexts/AuthContext';
  */
 function ProtectedRoute({ children, allowedRoles }) {
   const { currentUser, userRole, loading } = useAuth();
+  const location = useLocation();
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#f5f5f5' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'var(--cream)' }}>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ width: '64px', height: '64px', border: '4px solid #e0e0e0', borderTopColor: '#667eea', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 16px' }} />
+          <div style={{ width: '64px', height: '64px', border: '4px solid var(--cream-mid)', borderTopColor: 'var(--gold)', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 16px' }} />
           <p style={{ color: '#666', fontSize: '16px' }}>Loading...</p>
         </div>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
@@ -22,7 +23,7 @@ function ProtectedRoute({ children, allowedRoles }) {
     );
   }
 
-  if (!currentUser) return <Navigate to="/login" replace />;
+  if (!currentUser) return <Navigate to="/login" state={{ from: location }} replace />;
 
   const role = userRole || 'worker';
   if (allowedRoles && allowedRoles.length && !allowedRoles.includes(role)) {

@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AutocompleteInput from './AutocompleteInput';
@@ -279,9 +278,12 @@ function DistanceDashboard({ onAddToInvoice }) {
 
   return (
     <div style={{ maxWidth: '900px', margin: '0 auto', padding: '2rem' }}>
-      <h1 style={{ fontSize: '2rem', fontWeight: 'bold', marginBottom: '2rem' }}>
+      <h1 style={{ fontSize: '2rem', fontWeight: 'bold', marginBottom: '0.5rem' }}>
         💰🚙 Business Travel Cost Estimator 🚙💰
       </h1>
+      <p style={{ fontSize: '0.95rem', color: '#555', marginBottom: '1.75rem', lineHeight: 1.5 }}>
+        Trips you add to an invoice are saved to your business <strong>travel register</strong> — a record of travel for sales, service, and billing.
+      </p>
 
       <div style={{
         backgroundColor: '#f8f9fa',
@@ -839,6 +841,7 @@ function DistanceDashboard({ onAddToInvoice }) {
           <RouteMap result={result} />
         </>
       )}
+
     </div>
   );
 }

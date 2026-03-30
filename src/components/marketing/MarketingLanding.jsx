@@ -23,6 +23,64 @@ function lineAmount(q, r) {
   return qq * rr;
 }
 
+/** Same keys/colors as InvoiceGenerator header templates */
+const HEADER_TEMPLATES = {
+  classic: {
+    name: 'Classic White',
+    bg: '#ffffff',
+    text: '#1a1a1a',
+    border: '#1a1a1a',
+    palette: '⚪',
+  },
+  professional: {
+    name: 'Professional Navy',
+    bg: '#1e3a5f',
+    text: '#ffffff',
+    border: '#1e3a5f',
+    palette: '🔵',
+  },
+  modern: {
+    name: 'Modern Teal',
+    bg: '#008b8b',
+    text: '#ffffff',
+    border: '#008b8b',
+    palette: '🟢',
+  },
+  elegant: {
+    name: 'Elegant Purple',
+    bg: '#6a1b9a',
+    text: '#ffffff',
+    border: '#6a1b9a',
+    palette: '🟣',
+  },
+  corporate: {
+    name: 'Corporate Gray',
+    bg: '#424242',
+    text: '#ffffff',
+    border: '#424242',
+    palette: '⚫',
+  },
+  fresh: {
+    name: 'Fresh Green',
+    bg: '#2e7d32',
+    text: '#ffffff',
+    border: '#2e7d32',
+    palette: '🟢',
+  },
+};
+
+function hexToRgb(hex) {
+  const h = (hex || '').replace('#', '');
+  if (h.length !== 6) return [30, 58, 95];
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+}
+
+function hexToRgbText(hex) {
+  const h = (hex || '').replace('#', '');
+  if (h.length !== 6) return [255, 255, 255];
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+}
+
 export default function MarketingLanding() {
   const navigate = useNavigate();
   const createRef = useRef(null);
@@ -50,6 +108,9 @@ export default function MarketingLanding() {
   const [taxRate, setTaxRate] = useState('13');
   const [travelRows, setTravelRows] = useState([]);
   const [notes, setNotes] = useState('');
+  const [headerTemplate, setHeaderTemplate] = useState('professional');
+
+  const currentTemplate = HEADER_TEMPLATES[headerTemplate] || HEADER_TEMPLATES.professional;
 
   const scrollToCreate = () => createRef.current?.scrollIntoView({ behavior: 'smooth' });
 
@@ -144,10 +205,13 @@ export default function MarketingLanding() {
       const doc = new jsPDF({ unit: 'mm', format: 'a4' });
       const W = 210;
       const P = 20;
-      const AC = [212, 98, 58];
+      const tpl = currentTemplate;
+      const headerBg = hexToRgb(tpl.bg);
+      const headerFg = hexToRgbText(tpl.text);
       const DK = [42, 31, 20];
       const MT = [138, 115, 96];
       const CR = [237, 227, 211];
+      const TOT_BG = [248, 249, 250];
 
       const co = previewCompanyLine;
       const cu = customerName.trim() || 'Customer';
@@ -155,14 +219,22 @@ export default function MarketingLanding() {
       const idate = formatShortDate(invoiceDate);
       const ddate = formatShortDate(dueDate);
 
-      doc.setFillColor(...AC);
+      doc.setFillColor(...headerBg);
       doc.rect(0, 0, W, 30, 'F');
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(20);
-      doc.setTextColor(255, 255, 255);
+      doc.setTextColor(...headerFg);
       doc.text('Click2Bill', P, 19);
       doc.setFontSize(9);
-      doc.setTextColor(255, 225, 205);
+      const headerSubRgb =
+        tpl.bg.toLowerCase() === '#ffffff'
+          ? [108, 117, 125]
+          : [
+              Math.min(255, Math.round(headerFg[0] * 0.88 + 28)),
+              Math.min(255, Math.round(headerFg[1] * 0.88 + 28)),
+              Math.min(255, Math.round(headerFg[2] * 0.88 + 28)),
+            ];
+      doc.setTextColor(...headerSubRgb);
       doc.text('INVOICE', W - P, 19, alignRight);
 
       let y = 44;
@@ -300,21 +372,23 @@ export default function MarketingLanding() {
       });
 
       y += 4;
-      doc.setFillColor(...AC);
-      doc.roundedRect(W - P - 75, y, 78, 36, 3, 3, 'F');
+      doc.setFillColor(...TOT_BG);
+      doc.setDrawColor(222, 226, 230);
+      doc.roundedRect(W - P - 75, y, 78, 36, 3, 3, 'FD');
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7);
-      doc.setTextColor(255, 225, 205);
+      doc.setTextColor(...MT);
       doc.text('SERVICE (before tax)', W - P - 72, y + 7);
       doc.text(`TAX (${Number.isFinite(taxPct) ? taxPct : 0}%)`, W - P - 72, y + 14);
       doc.text('TRAVEL', W - P - 72, y + 21);
       doc.text('TOTAL', W - P - 72, y + 30);
       doc.setFontSize(9);
-      doc.setTextColor(255, 255, 255);
+      doc.setTextColor(...DK);
       doc.text(`$${subtotal.toFixed(2)}`, W - P - 4, y + 7, alignRight);
       doc.text(`$${taxAmount.toFixed(2)}`, W - P - 4, y + 14, alignRight);
       doc.text(`$${travelTotal.toFixed(2)}`, W - P - 4, y + 21, alignRight);
       doc.setFontSize(12);
+      doc.setTextColor(...DK);
       doc.text(`$${grandTotal.toFixed(2)}`, W - P - 4, y + 30, alignRight);
 
       if (notes.trim()) {
@@ -344,10 +418,12 @@ export default function MarketingLanding() {
 
   return (
     <div className="marketing-landing">
-      <nav className={`ml-nav${navScrolled ? ' scrolled' : ''}`}>
-        <button type="button" className="ml-logo" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
-          Click<span>2</span>Bill
-        </button>
+      <nav className={`ml-nav${navScrolled ? ' scrolled' : ''}`} aria-label="Main">
+        <div className="ml-nav-start">
+          <button type="button" className="ml-logo" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+            Click<span>2</span>Bill
+          </button>
+        </div>
         <ul className="ml-nav-links">
           <li>
             <a href="#create" onClick={(e) => { e.preventDefault(); scrollToCreate(); }}>Free invoice</a>
@@ -359,13 +435,15 @@ export default function MarketingLanding() {
             <a href="#how">How it works</a>
           </li>
         </ul>
-        <div className="ml-nav-cta">
-          <button type="button" className="ml-btn-ghost" onClick={() => navigate('/login')}>
-            Log in
-          </button>
-          <button type="button" className="ml-btn-primary" onClick={() => navigate('/register')}>
-            Register company
-          </button>
+        <div className="ml-nav-end">
+          <div className="ml-nav-auth-tabs" role="group" aria-label="Sign up or sign in">
+            <button type="button" className="ml-nav-tab" onClick={() => navigate('/register')}>
+              Sign up
+            </button>
+            <button type="button" className="ml-nav-tab" onClick={() => navigate('/login')}>
+              Access to portal
+            </button>
+          </div>
         </div>
       </nav>
 
@@ -385,8 +463,8 @@ export default function MarketingLanding() {
             <button type="button" className="ml-btn-hero" onClick={scrollToCreate}>
               Build a free PDF invoice →
             </button>
-            <button type="button" className="ml-btn-hero-outline" onClick={() => navigate('/register')}>
-              Create an account
+            <button type="button" className="ml-btn-hero-outline" onClick={() => navigate('/login')}>
+              Access to Portal
             </button>
           </div>
           <div className="ml-hero-trust">
@@ -672,141 +750,251 @@ export default function MarketingLanding() {
 
           <div className="ml-preview-wrap">
             <div className="ml-prev-lbl">Live preview</div>
-            <div className="ml-prev-card">
+            <p
+              style={{
+                fontSize: '0.75rem',
+                color: 'rgba(250,246,239,0.4)',
+                margin: '0 0 12px',
+                lineHeight: 1.5,
+              }}
+            >
+              Header colours match Invoice Generator templates (saved invoices use your chosen template in the app).
+            </p>
+            <div className="ml-template-picker">
+              {Object.entries(HEADER_TEMPLATES).map(([key, t]) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={headerTemplate === key ? 'ml-tpl-active' : ''}
+                  style={{ background: t.bg, color: t.text, borderColor: 'rgba(255,255,255,0.25)' }}
+                  title={t.name}
+                  onClick={() => setHeaderTemplate(key)}
+                >
+                  <span style={{ marginRight: '6px' }}>{t.palette}</span>
+                  {t.name}
+                </button>
+              ))}
+            </div>
+            <div className="ml-prev-card ml-prev-flush">
               <div
+                id="invoice-preview"
+                className="invoice-preview invoice-compact"
                 style={{
-                  background: '#1e3a5f',
-                  color: '#fff',
-                  margin: '-36px -36px 24px',
-                  padding: '28px 36px',
-                  borderRadius: '20px 20px 0 0',
-                  textAlign: 'center',
+                  margin: 0,
+                  maxWidth: 'none',
+                  boxShadow: 'none',
+                  borderRadius: 0,
                 }}
               >
-                <div style={{ fontSize: '34px', fontWeight: 700, letterSpacing: '-1px' }}>INVOICE</div>
-                <div style={{ fontSize: '18px', fontWeight: 600, opacity: 0.95 }}>{invoiceNumber || 'INV-…'}</div>
-              </div>
-
-              <div className="ml-pp">
-                <div>
-                  <div className="ml-pp-lbl">From</div>
-                  <div className="ml-pp-name">{previewCompanyLine}</div>
-                  {operationalNameDba.trim() && <div className="ml-pp-sub">DBA: {operationalNameDba.trim()}</div>}
-                  {companyAddress.trim() && <div className="ml-pp-sub">{companyAddress.trim()}</div>}
-                  {gstNumber.trim() && <div className="ml-pp-sub">HST/GST: {gstNumber.trim()}</div>}
+                <div
+                  style={{
+                    backgroundColor: currentTemplate.bg,
+                    color: currentTemplate.text,
+                    padding: '32px',
+                    borderRadius: '8px 8px 0 0',
+                    textAlign: 'center',
+                    marginBottom: '32px',
+                  }}
+                >
+                  <h1
+                    style={{
+                      fontSize: '42px',
+                      fontWeight: '700',
+                      margin: '0 0 8px 0',
+                      letterSpacing: '-1px',
+                    }}
+                  >
+                    INVOICE
+                  </h1>
+                  <div style={{ fontSize: '20px', fontWeight: '600', opacity: 0.9 }}>{invoiceNumber || 'INV-…'}</div>
                 </div>
-                <div>
-                  <div className="ml-pp-lbl">Bill to</div>
-                  <div className="ml-pp-name">{customerName.trim() || 'Customer name'}</div>
-                  <div className="ml-pp-sub">{customerEmail.trim() || '—'}</div>
-                  {showPayorBlock && (
-                    <div className="ml-pp-payor">
-                      <strong>Payor</strong>
-                      {payorName.trim() && <div>{payorName.trim()}</div>}
-                      {payorEmail.trim() && <div>{payorEmail.trim()}</div>}
+
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: '32px',
+                    marginBottom: '32px',
+                    padding: '0 32px',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: '700', fontSize: '18px', marginBottom: '4px' }}>{previewCompanyLine}</div>
+                    {operationalNameDba.trim() && (
+                      <div style={{ fontSize: '14px', color: '#666', marginBottom: '4px' }}>
+                        DBA: {operationalNameDba.trim()}
+                      </div>
+                    )}
+                    {companyAddress.trim() && (
+                      <div style={{ fontSize: '14px', color: '#666', whiteSpace: 'pre-line', marginBottom: '4px' }}>
+                        {companyAddress.trim()}
+                      </div>
+                    )}
+                    {gstNumber.trim() && (
+                      <div style={{ fontSize: '14px', color: '#666' }}>HST/GST: {gstNumber.trim()}</div>
+                    )}
+                  </div>
+
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px', fontWeight: '600' }}>BILL TO</div>
+                    <div style={{ fontWeight: '600', fontSize: '16px', marginBottom: '4px' }}>
+                      {customerName.trim() || 'Customer name'}
                     </div>
-                  )}
-                  {serviceAddress.trim() && (
-                    <div className="ml-pp-sub" style={{ marginTop: '8px' }}>
-                      Service address:
-                      <br />
-                      {serviceAddress.trim()}
+                    <div style={{ fontSize: '14px', color: '#666', marginBottom: '4px' }}>{customerEmail.trim() || '—'}</div>
+                    {showPayorBlock && (
+                      <div
+                        style={{
+                          fontSize: '13px',
+                          color: '#555',
+                          marginTop: '8px',
+                          padding: '8px',
+                          background: '#f8f9fa',
+                          borderRadius: '6px',
+                        }}
+                      >
+                        <div style={{ fontWeight: '600', marginBottom: '2px' }}>Payor</div>
+                        {payorName.trim() && <div>{payorName.trim()}</div>}
+                        {payorEmail.trim() && <div>{payorEmail.trim()}</div>}
+                      </div>
+                    )}
+                    {serviceAddress.trim() && (
+                      <div style={{ fontSize: '13px', color: '#666', marginTop: '8px' }}>
+                        Service Address:
+                        <br />
+                        {serviceAddress.trim()}
+                      </div>
+                    )}
+                    <div style={{ marginTop: '16px', fontSize: '14px' }}>
+                      <div>
+                        <strong>Date:</strong> {invoiceDate || '—'}
+                      </div>
+                      {dueDate ? (
+                        <div>
+                          <strong>Due Date:</strong> {dueDate}
+                        </div>
+                      ) : null}
                     </div>
-                  )}
-                  <div className="ml-pp-sub" style={{ marginTop: '12px' }}>
-                    <strong>Date:</strong> {formatShortDate(invoiceDate)}
-                    <br />
-                    <strong>Due:</strong> {formatShortDate(dueDate)}
                   </div>
                 </div>
-              </div>
 
-              {serviceStartDate && serviceEndDate && (
-                <div className="ml-svc-period">
-                  <strong>Service period</strong>
-                  {serviceStartDate} → {serviceEndDate}
-                </div>
-              )}
+                {serviceStartDate && serviceEndDate ? (
+                  <div
+                    style={{
+                      margin: '0 32px 16px',
+                      padding: '12px 16px',
+                      background: '#f8f9fa',
+                      borderRadius: '8px',
+                      borderLeft: '4px solid #1e3a5f',
+                      fontSize: '13px',
+                    }}
+                  >
+                    <div style={{ fontWeight: '600', marginBottom: '8px', color: '#333' }}>Service period</div>
+                    {serviceStartDate} → {serviceEndDate}
+                  </div>
+                ) : null}
 
-              <table className="ml-pt">
-                <thead>
-                  <tr>
-                    <th style={{ width: '46%' }}>Description</th>
-                    <th style={{ width: '12%', textAlign: 'center' }}>Qty</th>
-                    <th style={{ width: '18%', textAlign: 'right' }}>Rate</th>
-                    <th style={{ width: '18%', textAlign: 'right' }}>Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {validItems.length === 0 ? (
+                <table className="items-table" style={{ margin: '0 32px 24px' }}>
+                  <thead>
                     <tr>
-                      <td colSpan={4} style={{ color: 'var(--cream-mid)', fontStyle: 'italic', fontSize: '0.8rem' }}>
-                        Add line items on the left
-                      </td>
+                      <th>Description</th>
+                      <th className="text-center">Quantity</th>
+                      <th className="text-right">Rate</th>
+                      <th className="text-right">Amount</th>
                     </tr>
-                  ) : (
-                    validItems.map((it, idx) => {
-                      const qq = parseFloat(it.quantity);
-                      const q = Number.isFinite(qq) && qq >= 0 ? qq : 1;
-                      const rr = parseFloat(it.rate);
-                      const r = Number.isFinite(rr) ? rr : 0;
+                  </thead>
+                  <tbody>
+                    {validItems.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} style={{ color: '#999', fontStyle: 'italic', fontSize: '0.85rem' }}>
+                          Add line items on the left
+                        </td>
+                      </tr>
+                    ) : (
+                      validItems.map((it, idx) => {
+                        const qq = parseFloat(it.quantity);
+                        const q = Number.isFinite(qq) && qq >= 0 ? qq : 1;
+                        const rr = parseFloat(it.rate);
+                        const r = Number.isFinite(rr) ? rr : 0;
+                        return (
+                          <tr key={`it-${idx}`}>
+                            <td>{it.description || '—'}</td>
+                            <td className="text-center">{q}</td>
+                            <td className="text-right">${r.toFixed(2)}</td>
+                            <td className="text-right item-amount">${(q * r).toFixed(2)}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                    {travelRows.map((t, idx) => {
+                      const a = parseFloat(t.amount);
+                      const amt = Number.isFinite(a) ? a : 0;
+                      if (!t.description?.trim() && amt <= 0) return null;
                       return (
-                        <tr key={`it-${idx}`}>
-                          <td>{it.description || '—'}</td>
-                          <td style={{ textAlign: 'center' }}>{q}</td>
-                          <td style={{ textAlign: 'right' }}>${r.toFixed(2)}</td>
-                          <td>${(q * r).toFixed(2)}</td>
+                        <tr key={`tr-${idx}`}>
+                          <td>{t.description || 'Travel'}</td>
+                          <td className="text-center">1</td>
+                          <td className="text-right">${amt.toFixed(2)}</td>
+                          <td className="text-right item-amount">${amt.toFixed(2)}</td>
                         </tr>
                       );
-                    })
-                  )}
-                  {travelRows.map((t, idx) => {
-                    const a = parseFloat(t.amount);
-                    const amt = Number.isFinite(a) ? a : 0;
-                    if (!t.description?.trim() && amt <= 0) return null;
-                    return (
-                      <tr key={`tr-${idx}`}>
-                        <td>{t.description || 'Travel'}</td>
-                        <td style={{ textAlign: 'center' }}>1</td>
-                        <td style={{ textAlign: 'right' }}>${amt.toFixed(2)}</td>
-                        <td>${amt.toFixed(2)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                    })}
+                  </tbody>
+                </table>
 
-              <div className="ml-ptot">
-                <div className="ml-ptot-box">
-                  <div className="ml-ptot-row">
-                    <span>Service charge (before tax)</span>
-                    <span>${subtotal.toFixed(2)}</span>
+                <div style={{ padding: '0 32px' }} className="invoice-footer">
+                  <div className="footer-left">
+                    {notes.trim() ? (
+                      <div>
+                        <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Notes</h3>
+                        <div style={{ fontSize: '13px', color: '#666' }}>{notes.trim()}</div>
+                      </div>
+                    ) : null}
                   </div>
-                  <div className="ml-ptot-row">
-                    <span>Tax ({Number.isFinite(taxPct) ? taxPct : 0}%)</span>
-                    <span>${taxAmount.toFixed(2)}</span>
-                  </div>
-                  {travelTotal > 0 && (
-                    <div className="ml-ptot-row ml-ptot-travel">
-                      <span>Travel costs</span>
-                      <span>${travelTotal.toFixed(2)}</span>
+                  <div className="totals-box">
+                    <div className="total-row">
+                      <span>Service charge (before tax):</span>
+                      <span className="total-value">${subtotal.toFixed(2)}</span>
                     </div>
-                  )}
-                  <div className="ml-ptot-row grand">
-                    <span>Total</span>
-                    <span>${grandTotal.toFixed(2)}</span>
+                    <div className="total-row">
+                      <span>Tax ({Number.isFinite(taxPct) ? taxPct : 0}%):</span>
+                      <span className="total-value">${taxAmount.toFixed(2)}</span>
+                    </div>
+                    {travelTotal > 0 ? (
+                      <div
+                        className="total-row"
+                        style={{
+                          backgroundColor: '#e8f5e9',
+                          padding: '8px',
+                          marginTop: '8px',
+                          borderRadius: '4px',
+                          border: '1px solid #4caf50',
+                        }}
+                      >
+                        <span style={{ fontSize: '14px', color: '#2e7d32' }}>Travel Costs:</span>
+                        <span className="total-value" style={{ color: '#2e7d32' }}>
+                          ${travelTotal.toFixed(2)}
+                        </span>
+                      </div>
+                    ) : null}
+                    <div className="total-row grand-total">
+                      <span>Total:</span>
+                      <span>${grandTotal.toFixed(2)}</span>
+                    </div>
                   </div>
                 </div>
               </div>
-
-              {notes.trim() && (
-                <div className="ml-p-note">
-                  <strong style={{ fontStyle: 'normal' }}>Notes</strong>
-                  <br />
-                  {notes.trim()}
-                </div>
-              )}
-              <div className="ml-p-footer">Click2Bill — fields aligned with in-app invoice preview</div>
+              <div
+                style={{
+                  padding: '14px 16px',
+                  fontSize: '12px',
+                  color: 'rgba(0,0,0,0.45)',
+                  textAlign: 'center',
+                  borderTop: '1px solid #eee',
+                  background: '#fafafa',
+                }}
+              >
+                Same layout as Invoice Generator preview · Click2Bill
+              </div>
             </div>
           </div>
         </div>
@@ -816,7 +1004,7 @@ export default function MarketingLanding() {
         <div style={{ textAlign: 'center' }}>
           <span className="ml-section-tag">In the full app</span>
           <h2 className="ml-section-title" style={{ margin: '0 auto 16px' }}>
-            Customers, visits, travel,
+            Customers, travel,
             <br />
             and approval workflow.
           </h2>
@@ -834,13 +1022,6 @@ export default function MarketingLanding() {
             </p>
           </div>
           <div className="ml-feat-card">
-            <div className="ml-feat-icon ml-fi-green">⏱</div>
-            <h3 className="ml-feat-title">Visits &amp; hours</h3>
-            <p className="ml-feat-desc">
-              Pull check-in / check-out times into service periods and professional-service line items automatically.
-            </p>
-          </div>
-          <div className="ml-feat-card">
             <div className="ml-feat-icon ml-fi-brown">🚗</div>
             <h3 className="ml-feat-title">Travel records</h3>
             <p className="ml-feat-desc">Attach mileage trips to invoices; travel shows alongside services with tax only on labour.</p>
@@ -854,11 +1035,6 @@ export default function MarketingLanding() {
             <div className="ml-feat-icon ml-fi-purple">🏢</div>
             <h3 className="ml-feat-title">Company &amp; GST</h3>
             <p className="ml-feat-desc">Legal name, address, and HST/GST on every issued invoice — same blocks as the builder.</p>
-          </div>
-          <div className="ml-feat-card">
-            <div className="ml-feat-icon ml-fi-teal">📧</div>
-            <h3 className="ml-feat-title">Customer portal</h3>
-            <p className="ml-feat-desc">Recipients sign in to view invoices sent to their email — no extra logins for your team.</p>
           </div>
         </div>
       </section>
@@ -895,13 +1071,13 @@ export default function MarketingLanding() {
 
       <section className="ml-cta-section">
         <h2 className="ml-cta-title">Ready to use the full invoice workflow?</h2>
-        <p>Register your company to save invoices, connect customers, and issue from the same layout you previewed here.</p>
+        <p>Sign in to the portal to save invoices, manage customers, and issue from the same layout you previewed here.</p>
         <div className="ml-cta-actions">
-          <button type="button" className="ml-btn-cta-w" onClick={() => navigate('/register')}>
-            Register your company →
+          <button type="button" className="ml-btn-cta-w" onClick={() => navigate('/login')}>
+            Access the portal now →
           </button>
-          <button type="button" className="ml-btn-cta-o" onClick={() => navigate('/login')}>
-            Sign in
+          <button type="button" className="ml-btn-cta-o" onClick={() => navigate('/register')}>
+            Create a company account
           </button>
         </div>
       </section>
@@ -923,13 +1099,13 @@ export default function MarketingLanding() {
                 </button>
               </li>
               <li>
-                <button type="button" onClick={() => navigate('/register')}>
-                  Register
+                <button type="button" onClick={() => navigate('/login')}>
+                  Access to Portal
                 </button>
               </li>
               <li>
-                <button type="button" onClick={() => navigate('/login')}>
-                  Sign in
+                <button type="button" onClick={() => navigate('/register')}>
+                  Sign up — company
                 </button>
               </li>
             </ul>

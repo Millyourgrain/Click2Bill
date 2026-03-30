@@ -1,13 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Download, Plus, Trash2, Send, Home, Mail, FileCheck, CheckCircle, MapPin } from 'lucide-react';
+import { Download, Plus, Trash2, Send, Home, Mail, FileCheck, CheckCircle } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { getCompanyInfo } from '../../services/companyService';
 import { getCustomer, getCustomers, upsertCustomerFromInvoice, findRecurringCustomerByName } from '../../services/customerService';
 import { getVisit, getVisitHours, getVisitsHoursInRange } from '../../services/visitService';
-import { saveInvoice } from '../../services/invoiceService';
-import { getTravelRecords, addTravelRecord } from '../../services/travelRecordService';
+import { saveInvoice, updateInvoice, getInvoice, generateInvoicePortalToken } from '../../services/invoiceService';
+import { addTravelRecord, replaceTravelRecordsForInvoice } from '../../services/travelRecordService';
 import { sendEmail } from '../../services/emailService';
+import { formatInvoiceMoney, INVOICE_CURRENCY_OPTIONS, DEFAULT_INVOICE_CURRENCY, isCadCurrency, formatCadSalesTaxLabel } from '../../utils/invoiceCurrency';
+import { downloadInvoicePdf, buildInvoiceSummaryHtml } from '../../utils/invoicePdf';
+import InvoiceTravelGeoEstimate from './InvoiceTravelGeoEstimate';
 
 const PENDING_TRAVEL_KEY = 'pendingTravelItem';
 const DRAFT_BEFORE_TRAVEL_KEY = 'invoice-draft-before-travel';
@@ -23,16 +26,43 @@ function formatVisitCheckTimes(visit) {
   return `${dayDate} • Check-in: ${t1} • Check-out: ${t2}`;
 }
 
+function getInvoiceSignatoryPrintedName(companyInfo, currentUser) {
+  const n = companyInfo?.eInvoiceIssuerName || companyInfo?.mcPrimaryUserFullLegalName;
+  if (n && String(n).trim()) return String(n).trim();
+  const u = currentUser?.displayName || currentUser?.email;
+  return u ? String(u) : '';
+}
+
+function getInvoiceSignatoryTitle(companyInfo) {
+  const sys = companyInfo?.invoiceSystem;
+  const role = (companyInfo?.userTransactionRole || '').toLowerCase();
+  if (sys === 'authorized_signatory') return 'Authorized signatory';
+  if (role === 'maker') return 'Maker (issuer)';
+  if (role === 'checker') return 'Checker (approver)';
+  if (role === 'admin') return 'Administrator';
+  return 'Authorized representative';
+}
+
+function formatInvoiceDateLong(isoYmd) {
+  if (!isoYmd) return new Date().toLocaleDateString('en-CA', { year: 'numeric', month: 'long', day: 'numeric' });
+  const d = new Date(`${isoYmd}T12:00:00`);
+  return Number.isNaN(d.getTime())
+    ? String(isoYmd)
+    : d.toLocaleDateString('en-CA', { year: 'numeric', month: 'long', day: 'numeric' });
+}
+
 function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostConsumed }) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const visitIdParam = searchParams.get('visitId');
   const customerIdParam = searchParams.get('customerId');
+  const editInvoiceIdParam = searchParams.get('editInvoiceId');
   const { currentUser } = useAuth();
 
   const [step, setStep] = useState('form');
   const [headerTemplate, setHeaderTemplate] = useState('professional');
   const [companyInfo, setCompanyInfo] = useState(null);
+  const [logoDataUrl, setLogoDataUrl] = useState(null);
   const [loadingCompany, setLoadingCompany] = useState(true);
   const [deliveryMethod, setDeliveryMethod] = useState(null);
   const [reminderEnabled, setReminderEnabled] = useState(false);
@@ -40,6 +70,8 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
   const [isSaving, setIsSaving] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [savedInvoiceId, setSavedInvoiceId] = useState(null);
+  /** When set, delivery updates this invoice (contested → revised resend) instead of creating a new doc. */
+  const [editingInvoiceId, setEditingInvoiceId] = useState(null);
 
   const [invoice, setInvoice] = useState({
     invoiceNumber: `INV-${Date.now()}`,
@@ -54,6 +86,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
     payorEmail: '',
     items: [{ description: '', quantity: 1, rate: 0, amount: 0 }],
     travelItems: [],
+    currency: DEFAULT_INVOICE_CURRENCY,
     notes: '',
     taxRate: 13,
     hoursWorked: null,
@@ -64,13 +97,12 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
   const [servicePeriodVisits, setServicePeriodVisits] = useState([]); // visits with check-in/out for invoice display
 
   const [signature, setSignature] = useState(null);
+  /** Printed under signature; user-editable, default from org role. */
+  const [signatoryTitle, setSignatoryTitle] = useState('');
   const [isDrawing, setIsDrawing] = useState(false);
   const [customers, setCustomers] = useState([]);
   const [payorDifferentFromCustomer, setPayorDifferentFromCustomer] = useState(false);
   const [isRecurringCustomer, setIsRecurringCustomer] = useState(false);
-  const [travelRecords, setTravelRecords] = useState([]);
-  const [showTravelPicker, setShowTravelPicker] = useState(false);
-  const [loadingTravelRecords, setLoadingTravelRecords] = useState(false);
   const addedTravelIdsRef = useRef(new Set());
   const signatureRef = useRef(null);
   const hasSavedAfterLoadRef = useRef(false);
@@ -87,6 +119,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
         customerId,
         servicePeriodVisits,
         signature,
+        signatoryTitle,
         reminderEnabled,
         reminderFrequency,
         addedTravelIds: Array.from(addedTravelIdsRef.current),
@@ -119,6 +152,8 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
           ...t,
           quantity: (t.quantity != null && !isNaN(t.quantity)) ? Number(t.quantity) : 1,
         }));
+        if (!inv.currency) inv.currency = DEFAULT_INVOICE_CURRENCY;
+        if (inv.manualTaxAmount == null || inv.manualTaxAmount === '') inv.manualTaxAmount = 0;
         setInvoice(inv);
       }
       if (draft.step) setStep(draft.step);
@@ -129,6 +164,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
       if (draft.isRecurringCustomer != null) setIsRecurringCustomer(!!draft.isRecurringCustomer);
       if (draft.servicePeriodVisits?.length) setServicePeriodVisits(draft.servicePeriodVisits);
       if (draft.signature) setSignature(draft.signature);
+      if (draft.signatoryTitle != null) setSignatoryTitle(String(draft.signatoryTitle));
       if (draft.reminderEnabled != null) setReminderEnabled(draft.reminderEnabled);
       if (draft.reminderFrequency) setReminderFrequency(draft.reminderFrequency);
       if (draft.addedTravelIds?.length) draft.addedTravelIds.forEach((id) => addedTravelIdsRef.current.add(id));
@@ -151,11 +187,38 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
   }, []);
 
   useEffect(() => {
-    if (loadingCompany || visitIdParam || customerIdParam) return;
+    const url = companyInfo?.logoUrl?.trim();
+    if (!url) {
+      setLogoDataUrl(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
+        if (!res.ok) throw new Error('logo fetch failed');
+        const blob = await res.blob();
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        if (!cancelled) setLogoDataUrl(dataUrl);
+      } catch (e) {
+        console.warn('Invoice logo could not be inlined for PDF capture:', e);
+        if (!cancelled) setLogoDataUrl(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [companyInfo?.logoUrl]);
+
+  useEffect(() => {
+    if (loadingCompany || visitIdParam || customerIdParam || editInvoiceIdParam) return;
     const hadPendingTravel = !!sessionStorage.getItem(PENDING_TRAVEL_KEY);
     loadDraft();
     if (hadPendingTravel) setStep('form');
-  }, [loadingCompany, visitIdParam, customerIdParam]);
+  }, [loadingCompany, visitIdParam, customerIdParam, editInvoiceIdParam]);
 
   useEffect(() => {
     if (loadingCompany || visitIdParam || customerIdParam) return;
@@ -204,11 +267,74 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
     }
     if (step !== 'preview' || !savedInvoiceId) saveDraft();
     else sessionStorage.removeItem(STORAGE_KEY);
-  }, [invoice, step, headerTemplate, visitId, customerId, payorDifferentFromCustomer, isRecurringCustomer, servicePeriodVisits, signature, reminderEnabled, reminderFrequency, savedInvoiceId]);
+  }, [invoice, step, headerTemplate, visitId, customerId, payorDifferentFromCustomer, isRecurringCustomer, servicePeriodVisits, signature, signatoryTitle, reminderEnabled, reminderFrequency, savedInvoiceId]);
 
   useEffect(() => {
     getCustomers().then((r) => r.success && setCustomers(r.data || []));
   }, []);
+
+  /** Load a contested invoice for revise & resend (opened from dashboard). */
+  useEffect(() => {
+    if (!editInvoiceIdParam || loadingCompany) return;
+    let cancelled = false;
+    (async () => {
+      const res = await getInvoice(editInvoiceIdParam);
+      if (cancelled) return;
+      if (!res.success) {
+        alert(res.error || 'Could not load invoice');
+        navigate('/dashboard', { replace: true });
+        return;
+      }
+      const inv = res.data;
+      if (inv.status !== 'contested') {
+        alert('Only contested invoices can be revised and resent from here. Open it from the dashboard when status is "contested".');
+        navigate('/dashboard', { replace: true });
+        return;
+      }
+      try {
+        sessionStorage.removeItem(STORAGE_KEY);
+      } catch (e) { /* ignore */ }
+      setEditingInvoiceId(inv.id);
+      setSavedInvoiceId(inv.id);
+      const cur = inv.currency || DEFAULT_INVOICE_CURRENCY;
+      setInvoice({
+        invoiceNumber: inv.invoiceNumber,
+        date: inv.date || new Date().toISOString().split('T')[0],
+        dueDate: inv.dueDate || '',
+        serviceStartDate: inv.serviceStartDate || '',
+        serviceEndDate: inv.serviceEndDate || '',
+        customerName: inv.customerName || '',
+        customerEmail: inv.customerEmail || '',
+        serviceAddress: inv.serviceAddress || '',
+        payorName: inv.payorName || '',
+        payorEmail: inv.payorEmail || '',
+        items: Array.isArray(inv.items) && inv.items.length
+          ? inv.items.map((it) => ({
+              description: it.description || '',
+              quantity: it.quantity ?? 1,
+              rate: it.rate ?? 0,
+              amount: it.amount ?? (Number(it.quantity || 1) * Number(it.rate || 0)),
+            }))
+          : [{ description: '', quantity: 1, rate: 0, amount: 0 }],
+        travelItems: inv.travelItems || [],
+        currency: cur,
+        notes: inv.notes || '',
+        taxRate: inv.taxRate ?? 13,
+        hoursWorked: inv.hoursWorked ?? null,
+        ratePerHour: inv.ratePerHour ?? null,
+        manualTaxAmount: isCadCurrency(cur) ? 0 : (inv.manualTaxAmount ?? inv.tax ?? 0),
+      });
+      setSignature(inv.signature || null);
+      setSignatoryTitle((inv.signatoryTitle && String(inv.signatoryTitle).trim()) ? inv.signatoryTitle.trim() : getInvoiceSignatoryTitle(companyInfo));
+      setServicePeriodVisits(inv.servicePeriodVisits || []);
+      setVisitId(inv.visitId || null);
+      setCustomerId(inv.customerId || null);
+      setPayorDifferentFromCustomer(!!inv.isPayorDifferentFromCustomer);
+      if (inv.headerTemplate) setHeaderTemplate(inv.headerTemplate);
+      setStep('form');
+    })();
+    return () => { cancelled = true; };
+  }, [editInvoiceIdParam, loadingCompany, navigate]);
 
   useEffect(() => {
     if (!isRecurringCustomer) return;
@@ -232,6 +358,15 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
     }, 450);
     return () => clearTimeout(t);
   }, [invoice.customerName, isRecurringCustomer]);
+
+  const goToTravelForBilling = () => {
+    saveDraft();
+    try {
+      const d = sessionStorage.getItem(STORAGE_KEY);
+      if (d) sessionStorage.setItem(DRAFT_BEFORE_TRAVEL_KEY, d);
+    } catch (e) { /* ignore */ }
+    navigate('/travel');
+  };
 
   const loadCompanyData = async () => {
     try {
@@ -441,7 +576,10 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
   const calculateServiceCharge = () => calculateSubtotal();
 
   const calculateTax = () => {
-    return calculateSubtotal() * (invoice.taxRate / 100);
+    if (isCadCurrency(invoice.currency)) {
+      return calculateSubtotal() * (invoice.taxRate / 100);
+    }
+    return Math.max(0, parseFloat(invoice.manualTaxAmount) || 0);
   };
 
   const calculateTravelTotal = () => {
@@ -450,25 +588,6 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
 
   const calculateTotal = () => {
     return calculateSubtotal() + calculateTax() + calculateTravelTotal();
-  };
-
-  const loadTravelRecordsForPicker = async () => {
-    setShowTravelPicker(true);
-    setLoadingTravelRecords(true);
-    const res = await getTravelRecords();
-    setTravelRecords(res.success ? (res.data || []) : []);
-    setLoadingTravelRecords(false);
-  };
-
-  const addTravelRecordToInvoice = (rec) => {
-    if (companyInfo?.quoteTravelCostOnInvoice === false) return;
-    const id = `travel-rec-${rec.id}`;
-    if (addedTravelIdsRef.current.has(id)) return;
-    const amount = rec.totalCost != null ? Number(rec.totalCost) : 0;
-    const desc = rec.description || `Travel: ${rec.origin || ''} to ${rec.destination || ''} (${(rec.roundTripKm ?? rec.distanceKm * 2 ?? 0).toFixed(1)} km)`;
-    const item = { id, description: desc, quantity: 1, rate: amount, amount, date: rec.travelDate, isTaxExempt: true, type: 'travel' };
-    setInvoice((prev) => ({ ...prev, travelItems: [...prev.travelItems, item] }));
-    addedTravelIdsRef.current.add(id);
   };
 
   const startDrawing = (e) => {
@@ -538,17 +657,27 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
         hoursWorked: invoice.hoursWorked,
         ratePerHour: invoice.ratePerHour,
         subtotal: calculateSubtotal(),
-        taxRate: invoice.taxRate,
+        taxRate: isCadCurrency(invoice.currency) ? invoice.taxRate : 0,
         tax: calculateTax(),
         travelTotal: calculateTravelTotal(),
         total: calculateTotal(),
+        currency: invoice.currency || DEFAULT_INVOICE_CURRENCY,
+        manualTaxAmount: isCadCurrency(invoice.currency) ? null : (parseFloat(invoice.manualTaxAmount) || 0),
         notes: invoice.notes,
         signature: signature,
+        signatoryTitle: (signatoryTitle && String(signatoryTitle).trim()) || getInvoiceSignatoryTitle(companyInfo),
+        signatoryPrintedName: getInvoiceSignatoryPrintedName(companyInfo, currentUser),
+        portalToken: status === 'sent' ? generateInvoicePortalToken() : null,
+        issuerPaymentEmail: companyInfo?.email || '',
+        bankTransitNumber: companyInfo?.bankTransitNumber || '',
+        bankInstitutionNumber: companyInfo?.bankInstitutionNumber || '',
+        bankAccountNumber: companyInfo?.bankAccountNumber || '',
         headerTemplate: headerTemplate,
         status: status,
         deliveryMethod: method,
         reminderEnabled: method ? reminderEnabled : false,
         reminderFrequency: method ? reminderFrequency : null,
+        issuedAt: status === 'sent' ? new Date().toISOString() : null,
       };
       const result = await saveInvoice(invoiceData);
       
@@ -570,63 +699,245 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
         } else if (upsert.error && upsert.error !== 'Customer name and email required') {
           console.warn('Customer upsert:', upsert.error);
         }
-        if (status === 'sent' && (invoice.travelItems || []).length > 0) {
-          for (const item of invoice.travelItems) {
-            if (item.id && item.id.startsWith('travel-') && !item.id.startsWith('travel-rec-')) {
-              const rec = {
-                distanceKm: item.distanceKm ?? (item.roundTripKm ? item.roundTripKm / 2 : 0),
-                roundTripKm: item.roundTripKm ?? (item.distanceKm ? item.distanceKm * 2 : 0),
-                travelDate: item.date || new Date().toISOString().split('T')[0],
-                origin: item.origin || '',
-                destination: item.destination || '',
-                description: item.description || '',
-                totalCost: item.amount ?? item.rate ?? 0,
-              };
-              addTravelRecord(rec).catch((e) => console.warn('Travel record save failed:', e));
-            }
-          }
-        }
+        await replaceTravelRecordsForInvoice(result.data.id, invoice.invoiceNumber, invoice.travelItems).catch((e) =>
+          console.warn('Travel register sync:', e)
+        );
         setSavedInvoiceId(result.data.id);
-        setStep('preview');
-        return true;
+        return result.data.id;
       } else {
         alert('Failed to save invoice: ' + result.error);
-        return false;
+        return null;
       }
     } catch (error) {
       console.error('Save error:', error);
       alert('Failed to save invoice');
+      return null;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  /** Persist changes to a contested invoice and reset customer review state for resend. */
+  const handleUpdateContestInvoice = async (method) => {
+    if (!editingInvoiceId) return false;
+    setIsSaving(true);
+    try {
+      const invoiceData = {
+        invoiceNumber: invoice.invoiceNumber,
+        date: invoice.date,
+        dueDate: invoice.dueDate,
+        serviceStartDate: invoice.serviceStartDate || null,
+        serviceEndDate: invoice.serviceEndDate || null,
+        visitId: visitId || null,
+        customerId: customerId || null,
+        servicePeriodVisits: servicePeriodVisits.length ? servicePeriodVisits.map((v) => ({ serviceDate: v.serviceDate, checkInTime: v.checkInTime, checkOutTime: v.checkOutTime })) : [],
+        companyName: companyInfo?.companyName || companyInfo?.legalBusinessName || '',
+        legalBusinessName: companyInfo?.legalBusinessName || companyInfo?.companyName || '',
+        operationalNameDba: companyInfo?.operationalNameDba || '',
+        companyAddress: companyInfo?.companyAddress || '',
+        companyLogo: companyInfo?.logoUrl || '',
+        gstNumber: companyInfo?.gstNumber || '',
+        customerName: invoice.customerName,
+        customerEmail: invoice.customerEmail,
+        serviceAddress: invoice.serviceAddress,
+        isPayorDifferentFromCustomer: payorDifferentFromCustomer,
+        payorName: payorDifferentFromCustomer ? (invoice.payorName || '') : '',
+        payorEmail: payorDifferentFromCustomer ? (invoice.payorEmail || '') : invoice.customerEmail,
+        items: invoice.items,
+        travelItems: invoice.travelItems,
+        hoursWorked: invoice.hoursWorked,
+        ratePerHour: invoice.ratePerHour,
+        subtotal: calculateSubtotal(),
+        taxRate: isCadCurrency(invoice.currency) ? invoice.taxRate : 0,
+        tax: calculateTax(),
+        travelTotal: calculateTravelTotal(),
+        total: calculateTotal(),
+        currency: invoice.currency || DEFAULT_INVOICE_CURRENCY,
+        manualTaxAmount: isCadCurrency(invoice.currency) ? null : (parseFloat(invoice.manualTaxAmount) || 0),
+        notes: invoice.notes,
+        signature,
+        signatoryTitle: (signatoryTitle && String(signatoryTitle).trim()) || getInvoiceSignatoryTitle(companyInfo),
+        signatoryPrintedName: getInvoiceSignatoryPrintedName(companyInfo, currentUser),
+        portalToken: generateInvoicePortalToken(),
+        issuerPaymentEmail: companyInfo?.email || '',
+        bankTransitNumber: companyInfo?.bankTransitNumber || '',
+        bankInstitutionNumber: companyInfo?.bankInstitutionNumber || '',
+        bankAccountNumber: companyInfo?.bankAccountNumber || '',
+        headerTemplate,
+        status: 'sent',
+        customerCommentary: null,
+        viewedAt: null,
+        acceptedAt: null,
+        paidAt: null,
+        paymentReference: null,
+        deliveryMethod: method,
+        reminderEnabled: method ? reminderEnabled : false,
+        reminderFrequency: method ? reminderFrequency : null,
+        issuedAt: new Date().toISOString(),
+      };
+      const result = await updateInvoice(editingInvoiceId, invoiceData);
+      if (!result.success) {
+        alert('Failed to update invoice: ' + result.error);
+        return false;
+      }
+      await replaceTravelRecordsForInvoice(editingInvoiceId, invoice.invoiceNumber, invoice.travelItems);
+      const upsert = await upsertCustomerFromInvoice({
+        billingCustomerId: customerId,
+        customerName: invoice.customerName,
+        customerEmail: invoice.customerEmail,
+        serviceAddress: invoice.serviceAddress,
+        payorDifferentFromCustomer,
+        payorName: invoice.payorName,
+        payorEmail: invoice.payorEmail,
+        isRecurringCustomer,
+      });
+      if (upsert.success && upsert.data?.id) {
+        if (upsert.data.id !== customerId) setCustomerId(upsert.data.id);
+        await updateInvoice(editingInvoiceId, { customerId: upsert.data.id });
+        getCustomers().then((r) => r.success && setCustomers(r.data || []));
+      }
+      setSavedInvoiceId(editingInvoiceId);
+      setEditingInvoiceId(null);
+      return true;
+    } catch (e) {
+      console.error(e);
+      alert('Failed to update invoice');
       return false;
     } finally {
       setIsSaving(false);
     }
   };
 
-  // ✅ FEATURE 6: Delivery method selection
+  // Delivery: save invoice first, then email (portal link) and/or show preview + PDF — same sequence as reference (deliver before preview).
   const handleDeliveryChoice = async (method) => {
     setDeliveryMethod(method);
-    const saved = await handleSaveInvoice('sent', method);
+    const pdfCompanyInfo = companyInfo
+      ? {
+          ...companyInfo,
+          email: companyInfo.email || '',
+          bankTransitNumber: companyInfo.bankTransitNumber || '',
+          bankInstitutionNumber: companyInfo.bankInstitutionNumber || '',
+          bankAccountNumber: companyInfo.bankAccountNumber || '',
+        }
+      : companyInfo;
+    const pdfProps = {
+      invoice,
+      companyInfo: pdfCompanyInfo,
+      subtotal: calculateSubtotal(),
+      tax: calculateTax(),
+      travelTotal: calculateTravelTotal(),
+      total: calculateTotal(),
+    };
+    const runAfterPreviewPaint = (fn) => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setTimeout(fn, 120);
+        });
+      });
+    };
 
-    if (saved && method === 'email') {
-      await sendInvoice();
+    if (editingInvoiceId) {
+      const docIdForResend = editingInvoiceId;
+      const ok = await handleUpdateContestInvoice(method);
+      if (!ok) return;
+      if (method === 'email') {
+        await sendInvoice(docIdForResend, pdfProps);
+        navigate('/invoice', { replace: true });
+        return;
+      }
+      setStep('preview');
+      runAfterPreviewPaint(() => {
+        downloadInvoicePdf({
+          ...pdfProps,
+          previewEl: document.getElementById('invoice-preview'),
+        });
+      });
+      return;
+    }
+
+    const newInvoiceId = await handleSaveInvoice('sent', method);
+    if (!newInvoiceId) return;
+
+    if (method === 'email') {
+      await sendInvoice(newInvoiceId, pdfProps);
+    }
+    setStep('preview');
+    if (method === 'manual') {
+      runAfterPreviewPaint(() => {
+        downloadInvoicePdf({
+          ...pdfProps,
+          previewEl: document.getElementById('invoice-preview'),
+        });
+      });
     }
   };
 
   const downloadPDF = () => {
-    window.print();
+    const pdfCompanyInfo = companyInfo
+      ? {
+          ...companyInfo,
+          email: companyInfo.email || '',
+          bankTransitNumber: companyInfo.bankTransitNumber || '',
+          bankInstitutionNumber: companyInfo.bankInstitutionNumber || '',
+          bankAccountNumber: companyInfo.bankAccountNumber || '',
+        }
+      : companyInfo;
+    downloadInvoicePdf({
+      invoice,
+      companyInfo: pdfCompanyInfo,
+      subtotal: calculateSubtotal(),
+      tax: calculateTax(),
+      travelTotal: calculateTravelTotal(),
+      total: calculateTotal(),
+      previewEl: document.getElementById('invoice-preview'),
+    });
   };
 
-  const sendInvoice = async () => {
+  const sendInvoice = async (invoiceDocId, pdfProps) => {
     const emailTo = invoice.payorEmail || invoice.customerEmail;
     if (!emailTo) {
       alert('No customer or payor email on the invoice.');
       return;
     }
+    const id = invoiceDocId || savedInvoiceId;
+    const props = pdfProps || {
+      invoice,
+      companyInfo,
+      subtotal: calculateSubtotal(),
+      tax: calculateTax(),
+      travelTotal: calculateTravelTotal(),
+      total: calculateTotal(),
+    };
     setSendingEmail(true);
     const subject = `Invoice ${invoice.invoiceNumber} from ${companyInfo?.companyName || 'Your Company'}`;
-    const invoiceLink = savedInvoiceId ? `${window.location.origin}/customer/invoice/${savedInvoiceId}` : '';
-    const text = `Dear ${invoice.customerName},\n\nPlease find your invoice below.\n\nInvoice Number: ${invoice.invoiceNumber}\nTotal Amount: $${calculateTotal().toFixed(2)}\n\n${invoiceLink ? `View your invoice: ${invoiceLink}\n\n` : ''}Thank you for your business!\n\n${companyInfo?.companyName || 'Your Company'}`;
-    const res = await sendEmail({ to: emailTo, subject, text });
+    let invoiceLink = '';
+    if (id) {
+      const invSnap = await getInvoice(id);
+      if (!invSnap.success) {
+        setSendingEmail(false);
+        alert(invSnap.error || 'Could not prepare the customer link.');
+        return;
+      }
+      let portalToken = invSnap.data?.portalToken || null;
+      if (!portalToken) {
+        portalToken = generateInvoicePortalToken();
+        await updateInvoice(id, { portalToken });
+      }
+      invoiceLink = `${window.location.origin}/invoice/view/${id}?t=${encodeURIComponent(portalToken)}`;
+    }
+    const supplier = companyInfo?.companyName || companyInfo?.legalBusinessName || 'Your supplier';
+    const text = `Dear ${invoice.customerName},\n\nInvoice ${invoice.invoiceNumber} is ready from ${supplier}.\n\nTotal: ${formatInvoiceMoney(props.total, invoice.currency)}\n\nOpen your invoice (no account required — accept, contest, or download):\n${invoiceLink || '(link unavailable)'}\n\nThank you,\n${supplier}`;
+    const html = buildInvoiceSummaryHtml({
+      invoice,
+      companyInfo,
+      subtotal: props.subtotal,
+      tax: props.tax,
+      travelTotal: props.travelTotal,
+      total: props.total,
+      invoiceLink,
+      linkOnly: true,
+    });
+    const res = await sendEmail({ to: emailTo, subject, text, html });
     setSendingEmail(false);
     if (res.success) alert('Invoice sent successfully!');
     else alert(res.error || 'Failed to send email.');
@@ -645,13 +956,18 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
   return (
     <div className="main-content">
       <div className="step-indicator">
-        {['form', 'signature', 'delivery', 'preview'].map((s, idx) => (
+        {[
+          { id: 'form', label: 'Form' },
+          { id: 'signature', label: 'Signing' },
+          { id: 'delivery', label: 'Deliver' },
+          { id: 'preview', label: 'Preview' },
+        ].map(({ id: s, label }, idx) => (
           <div key={s} className="step-item">
             <div className={`step-number ${step === s ? 'active' : ''}`}>
               {idx + 1}
             </div>
             <span className={`step-label ${step === s ? 'active' : ''}`}>
-              {s === 'delivery' ? 'Deliver' : s}
+              {label}
             </span>
           </div>
         ))}
@@ -919,44 +1235,32 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
                 Add Item
               </button>
             </div>
-            <div style={{ marginBottom: '20px', padding: '16px', background: '#f8f9fa', borderRadius: '8px', borderLeft: '4px solid #1e3a5f' }}>
-              <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '12px', color: '#333' }}>Service period (dates & rate for professional fee)</div>
-              <div className="form-grid-3">
-                <div className="form-group">
-                  <label className="form-label">Service start date</label>
-                  <input type="date" value={invoice.serviceStartDate} onChange={(e) => setInvoice({ ...invoice, serviceStartDate: e.target.value })} className="form-input" />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Service end date</label>
-                  <input type="date" value={invoice.serviceEndDate} onChange={(e) => setInvoice({ ...invoice, serviceEndDate: e.target.value })} className="form-input" />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Rate per hour ($)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={invoice.ratePerHour ?? ''}
-                    onChange={(e) => {
-                      const rate = parseFloat(e.target.value) || null;
-                      setInvoice((prev) => {
-                        const next = { ...prev, ratePerHour: rate };
-                        if (prev.items?.length && prev.items[0].description === 'Professional service') {
-                          const qty = prev.items[0].quantity || 0;
-                          next.items = [...prev.items];
-                          next.items[0] = { ...next.items[0], rate: rate || 0, amount: qty * (rate || 0) };
-                        }
-                        return next;
-                      });
-                    }}
-                    className="form-input"
-                  />
-                </div>
-              </div>
-              {invoice.hoursWorked != null && invoice.hoursWorked > 0 && (
-                <p style={{ fontSize: '14px', color: '#666', marginTop: '8px' }}>Hours from check-in/out: {(invoice.hoursWorked ?? 0).toFixed(2)}</p>
-              )}
+            <div style={{ marginBottom: '20px', maxWidth: '320px' }}>
+              <label className="form-label">Invoice currency</label>
+              <select
+                className="form-input"
+                value={invoice.currency || DEFAULT_INVOICE_CURRENCY}
+                onChange={(e) => {
+                  const c = e.target.value;
+                  setInvoice((prev) => ({
+                    ...prev,
+                    currency: c,
+                    taxRate: isCadCurrency(c) ? (prev.taxRate > 0 ? prev.taxRate : 13) : 0,
+                    manualTaxAmount: isCadCurrency(c) ? 0 : prev.manualTaxAmount,
+                  }));
+                }}
+              >
+                {INVOICE_CURRENCY_OPTIONS.map(({ code, label }) => (
+                  <option key={code} value={code}>{label}</option>
+                ))}
+              </select>
+              <p style={{ fontSize: '13px', color: '#666', marginTop: '6px', marginBottom: 0 }}>
+                All line amounts and totals use this currency. More currencies can be added later.
+              </p>
             </div>
+            {invoice.hoursWorked != null && invoice.hoursWorked > 0 && (
+              <p style={{ fontSize: '14px', color: '#666', marginBottom: '12px' }}>Hours from linked visits (check-in/out): {(invoice.hoursWorked ?? 0).toFixed(2)}</p>
+            )}
             {invoice.items.map((item, index) => (
               <div key={index} className="item-row">
                 <div className="form-group">
@@ -980,7 +1284,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
                   />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Rate ($)</label>
+                  <label className="form-label">Rate ({invoice.currency || DEFAULT_INVOICE_CURRENCY})</label>
                   <input
                     type="number"
                     value={item.rate}
@@ -991,7 +1295,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
                   />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Amount ($)</label>
+                  <label className="form-label">Amount ({invoice.currency || DEFAULT_INVOICE_CURRENCY})</label>
                   <input
                     type="text"
                     value={(item.amount ?? 0).toFixed(2)}
@@ -1011,78 +1315,86 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
           </div>
 
           <div className="form-section">
-            <div className="form-group">
-              <label className="form-label">Tax Rate (%)</label>
-              <input
-                type="number"
-                value={invoice.taxRate}
-                onChange={(e) => setInvoice({ ...invoice, taxRate: parseFloat(e.target.value) || 0 })}
-                min="0"
-                max="100"
-                step="0.01"
-                className="form-input tax-input"
-              />
-              <p style={{ fontSize: '13px', color: '#666', marginTop: '6px' }}>
-                Tax is applied to service charge. Travel costs are typically tax-exempt.
-              </p>
-            </div>
+            {isCadCurrency(invoice.currency) ? (
+              <div className="form-group">
+                <label className="form-label">Tax rate (%)</label>
+                <input
+                  type="number"
+                  value={invoice.taxRate}
+                  onChange={(e) => setInvoice({ ...invoice, taxRate: parseFloat(e.target.value) || 0 })}
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  className="form-input tax-input"
+                />
+                <p style={{ fontSize: '13px', color: '#666', marginTop: '6px' }}>
+                  Tax is applied to service charge. Travel costs are typically tax-exempt.
+                </p>
+              </div>
+            ) : (
+              <>
+                <div style={{ padding: '14px', background: '#fff8e1', border: '1px solid #ffc107', borderRadius: '8px', marginBottom: '16px', fontSize: '14px', lineHeight: 1.5, color: '#5d4037' }}>
+                  <strong>Export / non-CAD billing:</strong> Assuming goods and services are exported and hence are not subject to Canadian GST/HST. The tax rate is set to <strong>0%</strong>. If you need to collect another jurisdiction&apos;s tax, enter it manually below.
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Tax rate (%)</label>
+                  <input type="number" value={0} readOnly className="form-input tax-input readonly" style={{ background: '#f5f5f5' }} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Manual tax amount ({invoice.currency})</label>
+                  <input
+                    type="number"
+                    value={invoice.manualTaxAmount === '' ? '' : invoice.manualTaxAmount}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setInvoice({
+                        ...invoice,
+                        manualTaxAmount: v === '' ? '' : Math.max(0, parseFloat(v) || 0),
+                      });
+                    }}
+                    min="0"
+                    step="0.01"
+                    className="form-input tax-input"
+                    placeholder="0 — optional"
+                  />
+                </div>
+              </>
+            )}
           </div>
 
           <div className="form-section">
-            <div className="items-header">
-              <h3 className="subsection-title">🚗 Travel costs</h3>
-              <button
-                type="button"
-                onClick={loadTravelRecordsForPicker}
-                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 16px', background: '#4caf50', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '14px' }}
-              >
-                <MapPin size={18} /> Select travel cost
-              </button>
-            </div>
-            <p style={{ fontSize: '14px', color: '#666', marginBottom: '12px' }}>
-              Add travel costs from saved records, or calculate a new trip on the Travel page.
+            <h3 className="subsection-title">Travel (optional)</h3>
+            <p style={{ fontSize: '14px', color: '#666', marginBottom: '12px', lineHeight: 1.5 }}>
+              Billable travel lines appear only when you add amounts (for example from the Travel register). Mileage-only trips below are saved for your travel register and are <strong>not</strong> added to the invoice total or PDF.
             </p>
-            {showTravelPicker && (
-              <div style={{ background: '#f8f9fa', padding: '16px', borderRadius: '8px', marginBottom: '16px', border: '1px solid #e0e0e0' }}>
-                <h4 style={{ margin: '0 0 12px 0', fontSize: '14px' }}>Select from saved travel records</h4>
-                {loadingTravelRecords ? (
-                  <p style={{ color: '#666' }}>Loading...</p>
-                ) : travelRecords.length === 0 ? (
-                  <p style={{ color: '#666' }}>No travel records yet. Use Travel to calculate a trip and add to invoice.</p>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {travelRecords.map((rec) => {
-                      const id = `travel-rec-${rec.id}`;
-                      const alreadyAdded = addedTravelIdsRef.current.has(id);
-                      return (
-                        <div key={rec.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: 'white', borderRadius: '6px', border: '1px solid #eee' }}>
-                          <div>
-                            <span style={{ fontWeight: '600' }}>{(rec.roundTripKm ?? rec.distanceKm * 2 ?? 0).toFixed(1)} km</span>
-                            <span style={{ marginLeft: '8px', color: '#666' }}>{rec.travelDate}</span>
-                            {(rec.origin || rec.destination) && (
-                              <div style={{ fontSize: '12px', color: '#888' }}>{rec.origin} → {rec.destination}</div>
-                            )}
-                            {rec.totalCost != null && <span style={{ marginLeft: '8px', fontWeight: '500' }}>${Number(rec.totalCost).toFixed(2)}</span>}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => addTravelRecordToInvoice(rec)}
-                            disabled={alreadyAdded}
-                            style={{ padding: '6px 12px', background: alreadyAdded ? '#ccc' : '#4caf50', color: 'white', border: 'none', borderRadius: '6px', cursor: alreadyAdded ? 'default' : 'pointer', fontSize: '13px' }}
-                          >
-                            {alreadyAdded ? 'Added' : 'Add'}
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-                <button type="button" onClick={() => setShowTravelPicker(false)} style={{ marginTop: '12px', fontSize: '13px', color: '#666', background: 'none', border: 'none', cursor: 'pointer' }}>Close</button>
-              </div>
-            )}
-            <button type="button" onClick={() => { saveDraft(); const d = sessionStorage.getItem(STORAGE_KEY); if (d) sessionStorage.setItem(DRAFT_BEFORE_TRAVEL_KEY, d); navigate('/travel'); }} style={{ padding: '8px 14px', background: '#e3f2fd', color: '#1976d2', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>
-              Calculate new travel →
+            <InvoiceTravelGeoEstimate
+              invoiceNumber={invoice.invoiceNumber}
+              invoiceId={savedInvoiceId}
+              travelDate={invoice.date}
+            />
+            <button
+              type="button"
+              onClick={goToTravelForBilling}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '10px 18px',
+                background: 'linear-gradient(135deg, var(--navy) 0%, var(--navy-700) 100%)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontWeight: '600',
+                fontSize: '14px',
+                marginBottom: '12px',
+              }}
+            >
+              Add travel cost
             </button>
+            <p style={{ fontSize: '13px', color: '#64748b', margin: '0', lineHeight: 1.5 }}>
+              Opens the travel cost estimator; use <strong>Add to invoice</strong> there to include the estimate on this invoice.
+            </p>
           </div>
 
           {invoice.travelItems.length > 0 && (
@@ -1107,7 +1419,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
                       {item.description}
                     </div>
                     <div style={{ fontSize: '14px', color: '#666' }}>
-                      Amount: ${(item.amount ?? 0).toFixed(2)}
+                      Amount: {formatInvoiceMoney(item.amount ?? 0, invoice.currency)}
                     </div>
                     {item.date && (
                       <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
@@ -1142,11 +1454,11 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
           <div className="summary-box">
             <div className="summary-row">
               <span>Service charge (before tax):</span>
-              <span className="summary-value">${calculateServiceCharge().toFixed(2)}</span>
+              <span className="summary-value">{formatInvoiceMoney(calculateServiceCharge(), invoice.currency)}</span>
             </div>
             <div className="summary-row">
-              <span>Tax ({invoice.taxRate}%):</span>
-              <span className="summary-value">${calculateTax().toFixed(2)}</span>
+              <span>{isCadCurrency(invoice.currency) ? `${formatCadSalesTaxLabel(invoice.taxRate)}:` : 'Tax (manual):'}</span>
+              <span className="summary-value">{formatInvoiceMoney(calculateTax(), invoice.currency)}</span>
             </div>
             {invoice.travelItems.length > 0 && (
               <div className="summary-row" style={{ 
@@ -1157,12 +1469,12 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
                 marginTop: '8px'
               }}>
                 <span>🚗 Travel costs:</span>
-                <span className="summary-value">${calculateTravelTotal().toFixed(2)}</span>
+                <span className="summary-value">{formatInvoiceMoney(calculateTravelTotal(), invoice.currency)}</span>
               </div>
             )}
             <div className="summary-row total">
               <span>Full payment (total):</span>
-              <span>${calculateTotal().toFixed(2)}</span>
+              <span>{formatInvoiceMoney(calculateTotal(), invoice.currency)}</span>
             </div>
           </div>
 
@@ -1176,17 +1488,30 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
             }
             className="continue-button"
           >
-            Continue to Signature
+            Continue to signing
           </button>
         </div>
       )}
 
       {step === 'signature' && (
         <div className="form-container">
-          <h2 className="section-title">Digital Signature</h2>
+          <h2 className="section-title">Signing</h2>
           <p className="signature-description">
             Please sign below to authorize this invoice
           </p>
+
+          <div className="form-section" style={{ maxWidth: '800px', marginBottom: '20px' }}>
+            <div className="form-group">
+              <label className="form-label">Title (printed under your name)</label>
+              <input
+                type="text"
+                className="form-input"
+                value={signatoryTitle}
+                onChange={(e) => setSignatoryTitle(e.target.value)}
+                placeholder={companyInfo ? getInvoiceSignatoryTitle(companyInfo) : 'e.g. Authorized signatory'}
+              />
+            </div>
+          </div>
 
           <div className="signature-canvas-container">
             <canvas
@@ -1206,10 +1531,10 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
               Clear Signature
             </button>
             <button onClick={() => setStep('form')} className="secondary-button">
-              Back to Form
+              Back to form
             </button>
             <button onClick={saveSignature} className="primary-button">
-              Save & Continue
+              Save &amp; continue
             </button>
           </div>
         </div>
@@ -1217,9 +1542,14 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
 
       {step === 'delivery' && (
         <div className="form-container">
-          <h2 className="section-title">Send invoice to customer</h2>
+          <h2 className="section-title">{editingInvoiceId ? 'Resend revised invoice' : 'Send invoice to customer'}</h2>
+          {editingInvoiceId && (
+            <p style={{ fontSize: '15px', color: '#155724', marginBottom: '20px', textAlign: 'center', padding: '12px', background: '#d4edda', borderRadius: '8px', maxWidth: '640px', margin: '12px auto 20px' }}>
+              You are resending after a contest. Customer feedback will be cleared when you confirm; they can accept or contest this revision again.
+            </p>
+          )}
           <p style={{ fontSize: '16px', color: '#666', marginBottom: '24px', textAlign: 'center' }}>
-            Choose how to deliver: manual (PDF/print) or share via email/link.
+            Email sends a <strong>secure link</strong> so the customer can accept (and download a PDF) or contest with a comment. You can also save and print a PDF for hand delivery.
           </p>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', maxWidth: '800px', margin: '0 auto 24px' }}>
@@ -1228,7 +1558,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
               disabled={isSaving}
               style={{
                 padding: '40px',
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                background: 'linear-gradient(135deg, var(--navy) 0%, var(--navy-700) 100%)',
                 color: 'white',
                 border: 'none',
                 borderRadius: '12px',
@@ -1245,9 +1575,9 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
               onMouseLeave={(e) => e.target.style.transform = 'translateY(0)'}
             >
               <Mail size={48} />
-              <span>Send via Email</span>
+              <span>Send link by email</span>
               <span style={{ fontSize: '14px', opacity: 0.9, fontWeight: '400' }}>
-                Opens email client with invoice details
+                No PDF attachment — customer opens the invoice online
               </span>
             </button>
 
@@ -1302,7 +1632,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
                 width: '48px',
                 height: '48px',
                 border: '4px solid #e0e0e0',
-                borderTopColor: '#667eea',
+                borderTopColor: 'var(--gold)',
                 borderRadius: '50%',
                 animation: 'spin 1s linear infinite',
                 margin: '0 auto 16px'
@@ -1312,8 +1642,8 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
           )}
 
           <div style={{ textAlign: 'center', marginTop: '24px' }}>
-            <button onClick={() => setStep('signature')} className="secondary-button">
-              Back to Signature
+            <button type="button" onClick={() => setStep('preview')} className="secondary-button">
+              Back to preview
             </button>
           </div>
         </div>
@@ -1340,7 +1670,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
                 <div style={{ fontSize: '14px', color: '#155724' }}>
                   Invoice #{invoice.invoiceNumber} • 
                   Delivery: {deliveryMethod === 'email' ? '📧 Email' : '📄 Manual'} • 
-                  Amount: ${calculateTotal().toFixed(2)}
+                  Amount: {formatInvoiceMoney(calculateTotal(), invoice.currency)}
                 </div>
               </div>
             </div>
@@ -1355,7 +1685,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
                 padding: '32px',
                 borderRadius: '8px 8px 0 0',
                 textAlign: 'center',
-                marginBottom: '32px'
+                marginBottom: '0'
               }}
             >
               <h1 style={{
@@ -1375,17 +1705,47 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
               </div>
             </div>
 
-            {/* Company Info Below Header */}
+            <div
+              className="invoice-metadata-row"
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                justifyContent: 'flex-start',
+                alignItems: 'baseline',
+                gap: '12px 32px',
+                padding: '16px 32px',
+                marginBottom: '24px',
+                borderBottom: '1px solid #e9ecef',
+                fontSize: '14px',
+                color: '#333'
+              }}
+            >
+              <div><strong>Date:</strong> {invoice.date}</div>
+              {invoice.dueDate && (
+                <div><strong>Due date:</strong> {invoice.dueDate}</div>
+              )}
+              <div style={{ marginLeft: 'auto' }}>
+                <strong>Currency:</strong> {invoice.currency || DEFAULT_INVOICE_CURRENCY}
+              </div>
+            </div>
+
+            {/* Company (left) and bill-to (right), top-aligned */}
             <div style={{
               display: 'grid',
               gridTemplateColumns: '1fr 1fr',
               gap: '32px',
               marginBottom: '32px',
-              padding: '0 32px'
+              padding: '0 32px',
+              alignItems: 'start'
             }}>
-              <div>
-                {companyInfo?.logoUrl && (
-                  <img src={companyInfo.logoUrl} alt="Logo" style={{ maxWidth: '150px', maxHeight: '80px', marginBottom: '16px' }} />
+              <div style={{ alignSelf: 'start' }}>
+                {(logoDataUrl || companyInfo?.logoUrl) && (
+                  <img
+                    src={logoDataUrl || companyInfo.logoUrl}
+                    alt=""
+                    className="invoice-preview-logo"
+                    style={{ maxWidth: '150px', maxHeight: '80px', marginBottom: '16px', display: 'block', objectFit: 'contain' }}
+                  />
                 )}
                 <div style={{ fontWeight: '700', fontSize: '18px', marginBottom: '4px' }}>
                   {companyInfo?.legalBusinessName || companyInfo?.companyName}
@@ -1399,12 +1759,15 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
                   </div>
                 )}
                 {companyInfo?.gstNumber && (
-                  <div style={{ fontSize: '14px', color: '#666' }}>HST/GST: {companyInfo.gstNumber}</div>
+                  <div style={{ fontSize: '14px', color: '#666' }}>HST/GST No.: {companyInfo.gstNumber}</div>
+                )}
+                {companyInfo?.bnNumber && (
+                  <div style={{ fontSize: '14px', color: '#666' }}>Business no. (BN): {companyInfo.bnNumber}</div>
                 )}
               </div>
 
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px', fontWeight: '600' }}>
+              <div style={{ textAlign: 'right', alignSelf: 'start' }}>
+                <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px', fontWeight: '600', letterSpacing: '0.06em' }}>
                   BILL TO
                 </div>
                 <div style={{ fontWeight: '600', fontSize: '16px', marginBottom: '4px' }}>
@@ -1414,7 +1777,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
                   {invoice.customerEmail}
                 </div>
                 {payorDifferentFromCustomer && (invoice.payorName || invoice.payorEmail) && (
-                  <div style={{ fontSize: '13px', color: '#555', marginTop: '8px', padding: '8px', background: '#f8f9fa', borderRadius: '6px' }}>
+                  <div style={{ fontSize: '13px', color: '#555', marginTop: '8px', padding: '8px', background: '#f8f9fa', borderRadius: '6px', textAlign: 'left' }}>
                     <div style={{ fontWeight: '600', marginBottom: '2px' }}>Payor</div>
                     {invoice.payorName && <div>{invoice.payorName}</div>}
                     {invoice.payorEmail && <div>{invoice.payorEmail}</div>}
@@ -1422,14 +1785,10 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
                 )}
                 {invoice.serviceAddress && (
                   <div style={{ fontSize: '13px', color: '#666', marginTop: '8px' }}>
-                    Service Address:<br />
+                    Service address:<br />
                     {invoice.serviceAddress}
                   </div>
                 )}
-                <div style={{ marginTop: '16px', fontSize: '14px' }}>
-                  <div><strong>Date:</strong> {invoice.date}</div>
-                  {invoice.dueDate && <div><strong>Due Date:</strong> {invoice.dueDate}</div>}
-                </div>
               </div>
             </div>
 
@@ -1443,30 +1802,30 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
               </div>
             )}
 
-            <table className="items-table" style={{ margin: '0 32px 24px' }}>
+            <table className="items-table items-table-invoice" style={{ margin: '0 32px 24px' }}>
               <thead>
                 <tr>
-                  <th>Description</th>
-                  <th className="text-center">Quantity</th>
-                  <th className="text-right">Rate</th>
-                  <th className="text-right">Amount</th>
+                  <th className="col-description">Description</th>
+                  <th className="text-right col-qty">Quantity</th>
+                  <th className="text-right col-rate">Rate</th>
+                  <th className="text-right col-amount">Amount</th>
                 </tr>
               </thead>
               <tbody>
                 {invoice.items.map((item, index) => (
                   <tr key={index}>
-                    <td>{item.description}</td>
-                    <td className="text-center">{item.quantity ?? 1}</td>
-                    <td className="text-right">${(item.rate ?? 0).toFixed(2)}</td>
-                    <td className="text-right item-amount">${(item.amount ?? 0).toFixed(2)}</td>
+                    <td className="col-description">{item.description}</td>
+                    <td className="text-right col-qty">{item.quantity ?? 1}</td>
+                    <td className="text-right col-rate">{formatInvoiceMoney(item.rate ?? 0, invoice.currency)}</td>
+                    <td className="text-right item-amount col-amount">{formatInvoiceMoney(item.amount ?? 0, invoice.currency)}</td>
                   </tr>
                 ))}
                 {(invoice.travelItems || []).map((item, index) => (
                   <tr key={`t-${index}`}>
-                    <td>{item.description}</td>
-                    <td className="text-center">{item.quantity ?? 1}</td>
-                    <td className="text-right">{(item.rate ?? item.amount) != null ? `$${(item.rate ?? item.amount).toFixed(2)}` : '–'}</td>
-                    <td className="text-right item-amount">${(item.amount ?? 0).toFixed(2)}</td>
+                    <td className="col-description">{item.description}</td>
+                    <td className="text-right col-qty">{item.quantity ?? 1}</td>
+                    <td className="text-right col-rate">{(item.rate ?? item.amount) != null ? formatInvoiceMoney(item.rate ?? item.amount, invoice.currency) : '–'}</td>
+                    <td className="text-right item-amount col-amount">{formatInvoiceMoney(item.amount ?? 0, invoice.currency)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1484,11 +1843,11 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
               <div className="totals-box">
                 <div className="total-row">
                   <span>Service charge (before tax):</span>
-                  <span className="total-value">${calculateSubtotal().toFixed(2)}</span>
+                  <span className="total-value">{formatInvoiceMoney(calculateSubtotal(), invoice.currency)}</span>
                 </div>
                 <div className="total-row">
-                  <span>Tax ({invoice.taxRate}%):</span>
-                  <span className="total-value">${calculateTax().toFixed(2)}</span>
+                  <span>{isCadCurrency(invoice.currency) ? `${formatCadSalesTaxLabel(invoice.taxRate)}:` : 'Tax (manual):'}</span>
+                  <span className="total-value">{formatInvoiceMoney(calculateTax(), invoice.currency)}</span>
                 </div>
                 
                 {invoice.travelItems.length > 0 && (
@@ -1503,51 +1862,103 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
                       Travel Costs:
                     </span>
                     <span className="total-value" style={{ color: '#2e7d32' }}>
-                      ${calculateTravelTotal().toFixed(2)}
+                      {formatInvoiceMoney(calculateTravelTotal(), invoice.currency)}
                     </span>
                   </div>
                 )}
                 
                 <div className="total-row grand-total">
                   <span>Total:</span>
-                  <span>${calculateTotal().toFixed(2)}</span>
+                  <span>{formatInvoiceMoney(calculateTotal(), invoice.currency)}</span>
                 </div>
               </div>
             </div>
 
+            {companyInfo && (
+              <div
+                className="invoice-business-footer-band"
+                style={{
+                  margin: '24px 32px 0',
+                  padding: '18px 20px',
+                  background: '#f4f6f8',
+                  borderTop: '2px solid #dee2e6',
+                  fontSize: '12px',
+                  color: '#495057',
+                  lineHeight: 1.5
+                }}
+              >
+                <div style={{ fontWeight: '700', fontSize: '13px', marginBottom: '10px', color: '#212529', letterSpacing: '0.04em' }}>
+                  SUPPLIER / VENDOR DETAILS
+                </div>
+                <div style={{ fontWeight: '600', color: '#212529' }}>
+                  {companyInfo.legalBusinessName || companyInfo.companyName}
+                </div>
+                {companyInfo.operationalNameDba && (
+                  <div>DBA: {companyInfo.operationalNameDba}</div>
+                )}
+                {companyInfo.companyAddress && (
+                  <div style={{ whiteSpace: 'pre-line', marginTop: '4px' }}>{companyInfo.companyAddress}</div>
+                )}
+                <div style={{ marginTop: '8px' }}>
+                  {companyInfo.email && <div>Email: {companyInfo.email}</div>}
+                  {companyInfo.phone && <div>Phone: {companyInfo.phone}</div>}
+                  {companyInfo.bnNumber && <div>CRA business number (BN): {companyInfo.bnNumber}</div>}
+                  {companyInfo.gstNumber && <div>HST/GST registration no.: {companyInfo.gstNumber}</div>}
+                </div>
+              </div>
+            )}
+
             {signature && (
-              <div className="signature-section-footer" style={{ margin: '32px 32px 0' }}>
-                <div className="signature-label">Authorized Signature</div>
-                <img src={signature} alt="Signature" className="signature-image" />
-                <div className="signature-date">{new Date().toLocaleDateString()}</div>
+              <div className="signature-section-footer" style={{ margin: '28px 32px 0' }}>
+                <div className="signature-label">Authorized signature</div>
+                <img src={signature} alt="" className="signature-image" />
+                <div className="signature-printed-lines" style={{ marginTop: '14px', fontSize: '13px', color: '#212529', lineHeight: 1.5 }}>
+                  <div style={{ fontWeight: '600' }}>{getInvoiceSignatoryPrintedName(companyInfo, currentUser)}</div>
+                  <div style={{ color: '#495057' }}>{(signatoryTitle && String(signatoryTitle).trim()) || getInvoiceSignatoryTitle(companyInfo)}</div>
+                  <div style={{ color: '#495057' }}>Date: {formatInvoiceDateLong(invoice.date)}</div>
+                </div>
               </div>
             )}
           </div>
 
-          {/* ✅ FEATURE 8: Return to Dashboard Button */}
-          <div className="action-buttons">
-            <button 
-              onClick={() => navigate('/dashboard')} 
-              className="secondary-button flex-button"
-              style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}
-            >
-              <Home size={20} />
-              Return to Dashboard
-            </button>
-            <button onClick={() => setStep('form')} className="secondary-button flex-button">
-              Edit Invoice
-            </button>
-            <button onClick={downloadPDF} className="primary-button flex-button">
-              <Download size={20} />
-              Download PDF
-            </button>
-            {deliveryMethod === 'email' && (
-              <button onClick={sendInvoice} className="success-button flex-button">
-                <Send size={20} />
-                Email Again
+          {savedInvoiceId && (
+            <div className="action-buttons">
+              <button
+                type="button"
+                onClick={() => navigate('/dashboard')}
+                className="secondary-button flex-button"
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}
+              >
+                <Home size={20} />
+                Return to Dashboard
               </button>
-            )}
-          </div>
+              <button type="button" onClick={() => setStep('form')} className="secondary-button flex-button">
+                Edit Invoice
+              </button>
+              <button type="button" onClick={downloadPDF} className="primary-button flex-button">
+                <Download size={20} />
+                Download PDF
+              </button>
+              {deliveryMethod === 'email' && (
+                <button
+                  type="button"
+                  onClick={() => sendInvoice(savedInvoiceId, {
+                    invoice,
+                    companyInfo,
+                    subtotal: calculateSubtotal(),
+                    tax: calculateTax(),
+                    travelTotal: calculateTravelTotal(),
+                    total: calculateTotal(),
+                  })}
+                  disabled={sendingEmail}
+                  className="success-button flex-button"
+                >
+                  <Send size={20} />
+                  {sendingEmail ? 'Sending…' : 'Email again'}
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
 

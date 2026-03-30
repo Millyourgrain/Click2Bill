@@ -1,0 +1,13 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "travelRecords",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "invoiceId", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

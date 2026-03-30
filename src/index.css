@@ -5,11 +5,38 @@
   box-sizing: border-box;
 }
 
+/* Portal + landing — cream base, deep navy structure, soft gold accent */
+:root {
+  --cream: #faf6ef;
+  --cream-dark: #f0e8d8;
+  --cream-mid: #e5dcc8;
+  --cream-deep: #d8cdb6;
+  --navy: #142a42;
+  --navy-800: #18314d;
+  --navy-700: #1f3d5c;
+  --navy-600: #2a4a6e;
+  --gold: #c6a14a;
+  --gold-light: #d4b56a;
+  --gold-dark: #a8863d;
+  --gold-soft: rgba(198, 161, 74, 0.18);
+  --text-primary: #1c2836;
+  --text-muted: #5c6570;
+  --text-warm: #4a4338;
+  --white: #ffffff;
+  --success: #3d6b4a;
+  --success-light: #d8ebdd;
+  --invoice-navy: #1e3a5f;
+  --portal-shadow: 0 8px 28px rgba(20, 42, 66, 0.09);
+  --gradient-navy: linear-gradient(135deg, var(--navy) 0%, var(--navy-700) 100%);
+}
+
 body {
   margin: 0;
   font-family: 'Crimson Text', Georgia, serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: var(--cream);
+  color: var(--text-primary);
 }
 
 code {
@@ -20,16 +47,16 @@ code {
   @page {
     margin: 0.5in;
   }
-  
+
   body * {
     visibility: hidden;
   }
-  
+
   #invoice-preview,
   #invoice-preview * {
     visibility: visible;
   }
-  
+
   #invoice-preview {
     position: absolute;
     left: 0;

@@ -30,6 +30,7 @@ export const saveCompanyInfo = async (companyData) => {
       email: companyData.email || user.email,
       phone: companyData.phone || '',
       logoUrl: companyData.logoUrl || '',
+      logoPath: companyData.logoPath || '',
       businessStructure: companyData.businessStructure || '',
       bnNumber: companyData.bnNumber || '',
       verifyDocArticlesUrl: companyData.verifyDocArticlesUrl || '',

@@ -11,10 +11,10 @@ const getApiBase = () => {
 
 /**
  * Send an email through the platform.
- * @param {{ to: string, subject: string, text?: string, html?: string }} payload
+ * @param {{ to: string, subject: string, text?: string, html?: string, attachments?: Array<{ filename: string, content: string }> }} payload
  * @returns {{ success: boolean, error?: string }}
  */
-export const sendEmail = async ({ to, subject, text, html }) => {
+export const sendEmail = async ({ to, subject, text, html, attachments }) => {
   try {
     const user = auth.currentUser;
     if (!user) return { success: false, error: 'Not logged in' };
@@ -27,7 +27,7 @@ export const sendEmail = async ({ to, subject, text, html }) => {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ to: to.trim(), subject, text, html }),
+      body: JSON.stringify({ to: to.trim(), subject, text, html, attachments }),
     });
 
     const data = await res.json().catch(() => ({}));

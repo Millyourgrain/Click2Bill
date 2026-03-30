@@ -1,5 +1,5 @@
 .app-header {
-  background: #1a1a1a;
+  background: var(--navy);
   color: #f8f9fa;
   padding: 20px 40px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
@@ -45,9 +45,9 @@
 }
 
 .nav-tab.active {
-  background: #f8f9fa;
-  color: #1a1a1a;
-  border-color: #f8f9fa;
+  background: var(--cream);
+  color: var(--navy);
+  border-color: var(--gold);
 }
 
 /* Color Picker */
@@ -96,7 +96,7 @@
 }
 
 .color-option:hover {
-  border-color: #1a1a1a;
+  border-color: var(--gold);
   transform: translateX(4px);
 }
 
@@ -109,14 +109,16 @@
   max-width: 1200px;
   margin: 0 auto;
   padding: 40px 20px;
+  min-height: calc(100vh - 0px);
 }
 
 /* Form Container (Invoice) */
 .form-container {
-  background: #ffffff;
+  background: var(--white);
   border-radius: 12px;
   padding: 48px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--cream-mid);
+  box-shadow: var(--portal-shadow);
   max-width: 1200px;
   margin: 40px auto;
 }
@@ -124,7 +126,7 @@
 .section-title {
   font-size: 32px;
   margin-bottom: 32px;
-  color: #1a1a1a;
+  color: var(--navy);
   font-weight: 600;
 }
 
@@ -135,8 +137,8 @@
 .subsection-title {
   font-size: 20px;
   margin-bottom: 20px;
-  color: #495057;
-  border-bottom: 2px solid #1a1a1a;
+  color: var(--navy-700);
+  border-bottom: 2px solid var(--gold);
   padding-bottom: 8px;
 }
 
@@ -180,7 +182,7 @@
 .form-input:focus,
 .form-textarea:focus {
   outline: none;
-  border-color: #1a1a1a;
+  border-color: var(--gold);
 }
 
 .form-textarea {
@@ -277,7 +279,7 @@
 }
 
 .step-number.active {
-  background: #1a1a1a;
+  background: var(--navy);
   color: #fff;
 }
 
@@ -290,7 +292,7 @@
 }
 
 .step-label.active {
-  color: #1a1a1a;
+  color: var(--navy);
   font-weight: 600;
 }
 
@@ -304,7 +306,7 @@
 
 .add-item-button {
   padding: 10px 20px;
-  background: #1a1a1a;
+  background: var(--navy);
   color: #fff;
   border: none;
   border-radius: 8px;
@@ -317,7 +319,7 @@
 }
 
 .add-item-button:hover {
-  background: #333;
+  background: var(--navy-700);
 }
 
 .item-row {
@@ -373,14 +375,14 @@
   font-size: 20px;
   font-weight: 700;
   padding-top: 12px;
-  border-top: 2px solid #1a1a1a;
+  border-top: 2px solid var(--gold);
 }
 
 /* Buttons */
 .continue-button {
   width: 100%;
   padding: 16px;
-  background: #1a1a1a;
+  background: var(--navy);
   color: #fff;
   border: none;
   border-radius: 8px;
@@ -391,7 +393,7 @@
 }
 
 .continue-button:not(:disabled):hover {
-  background: #333;
+  background: var(--navy-700);
 }
 
 .continue-button:disabled {
@@ -401,7 +403,7 @@
 
 .primary-button {
   padding: 14px 24px;
-  background: #1a1a1a;
+  background: var(--navy);
   color: #fff;
   border: none;
   border-radius: 8px;
@@ -415,14 +417,14 @@
 }
 
 .primary-button:hover {
-  background: #333;
+  background: var(--navy-700);
 }
 
 .secondary-button {
   padding: 14px 24px;
-  background: #f8f9fa;
-  color: #1a1a1a;
-  border: 2px solid #dee2e6;
+  background: var(--cream);
+  color: var(--navy);
+  border: 2px solid var(--cream-mid);
   border-radius: 8px;
   font-size: 16px;
   font-weight: 600;
@@ -508,7 +510,7 @@
   justify-content: space-between;
   align-items: start;
   margin-bottom: 48px;
-  border-bottom: 3px solid #1a1a1a;
+  border-bottom: 3px solid var(--navy);
   padding-bottom: 24px;
 }
 
@@ -609,8 +611,8 @@
 }
 
 .items-table thead {
-  background: #f8f9fa;
-  border-bottom: 3px solid #1a1a1a;
+  background: var(--cream-dark);
+  border-bottom: 3px solid var(--navy);
 }
 
 .items-table th {
@@ -646,6 +648,28 @@
 
 .items-table td.item-amount {
   font-weight: 600;
+}
+
+/* Invoice preview/PDF: align description flush to table margin; numeric columns right-aligned */
+.invoice-preview .items-table-invoice th.col-description,
+.invoice-preview .items-table-invoice td.col-description {
+  padding-left: 0;
+  text-align: left;
+}
+
+.invoice-preview .items-table-invoice th.col-qty,
+.invoice-preview .items-table-invoice td.col-qty,
+.invoice-preview .items-table-invoice th.col-rate,
+.invoice-preview .items-table-invoice td.col-rate,
+.invoice-preview .items-table-invoice th.col-amount,
+.invoice-preview .items-table-invoice td.col-amount {
+  text-align: right;
+}
+
+.invoice-preview .items-table-invoice thead th {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 12px;
 }
 
 /* Invoice Footer */
@@ -780,7 +804,7 @@
   margin-top: 32px !important;
   padding-top: 20px !important;
   border-top: 1px solid #e9ecef;
-  max-width: 200px;
+  max-width: 100%;
 }
 
 .signature-section-footer .signature-label {
@@ -911,6 +935,11 @@
   .invoice-compact .items-table th,
   .invoice-compact .items-table td {
     padding: 6px 8px !important;
+  }
+
+  .invoice-preview .items-table-invoice th.col-description,
+  .invoice-preview .items-table-invoice td.col-description {
+    padding-left: 0 !important;
   }
   
   .invoice-compact .invoice-footer {

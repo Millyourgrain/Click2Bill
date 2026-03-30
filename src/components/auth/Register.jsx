@@ -92,14 +92,15 @@ function Register() {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      background: 'var(--cream)',
       padding: '40px 20px'
     }}>
       <div style={{
-        background: 'white',
+        background: 'var(--white)',
         padding: '48px',
         borderRadius: '16px',
-        boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+        border: '1px solid var(--cream-mid)',
+        boxShadow: 'var(--portal-shadow)',
         width: '100%',
         maxWidth: '450px'
       }}>
@@ -107,20 +108,21 @@ function Register() {
           <div style={{
             width: '80px',
             height: '80px',
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            background: 'linear-gradient(135deg, var(--navy) 0%, var(--navy-700) 100%)',
             borderRadius: '50%',
             margin: '0 auto 16px',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center'
+            justifyContent: 'center',
+            border: '2px solid var(--gold)'
           }}>
-            <UserPlus size={40} color="white" />
+            <UserPlus size={40} color="#f5e6b8" />
           </div>
           <h1 style={{
             fontSize: '28px',
             fontWeight: '700',
             marginBottom: '8px',
-            color: '#1a1a1a'
+            color: 'var(--navy)'
           }}>
             {isTeamInvite ? 'Accept your team invite' : 'Create your account'}
           </h1>
@@ -165,7 +167,7 @@ function Register() {
                 placeholder="you@company.com"
                 style={{
                   ...inputShell,
-                  ...(isTeamInvite && inviteEmail ? { background: '#f5f5f5', color: '#555' } : {}),
+                  ...(isTeamInvite && inviteEmail ? { background: 'var(--cream-dark)', color: '#555' } : {}),
                 }}
               />
             </div>
@@ -211,7 +213,7 @@ function Register() {
             style={{
               width: '100%',
               padding: '14px',
-              background: loading ? '#ccc' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              background: loading ? '#ccc' : 'var(--navy)',
               color: 'white',
               border: 'none',
               borderRadius: '8px',
@@ -246,7 +248,7 @@ function Register() {
             <Link
               to="/login"
               style={{
-                color: '#667eea',
+                color: 'var(--gold-dark)',
                 textDecoration: 'none',
                 fontWeight: '600'
               }}

@@ -168,8 +168,8 @@ function CustomerDashboard() {
   const tabStyle = (tab) => ({
     padding: '10px 20px',
     border: 'none',
-    background: activeTab === tab ? '#0d9488' : 'transparent',
-    color: activeTab === tab ? 'white' : '#334155',
+    background: activeTab === tab ? 'var(--navy)' : 'transparent',
+    color: activeTab === tab ? 'var(--cream)' : 'var(--text-warm)',
     borderRadius: '8px',
     cursor: 'pointer',
     fontWeight: 600,
@@ -185,18 +185,30 @@ function CustomerDashboard() {
 
   if (loading && invoices.length === 0 && providers.length === 0 && appointments.length === 0) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#f0fdfa' }}>
-        <div style={{ width: '48px', height: '48px', border: '4px solid #e0e0e0', borderTopColor: '#0d9488', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'var(--cream)' }}>
+        <div style={{ width: '48px', height: '48px', border: '4px solid var(--cream-mid)', borderTopColor: 'var(--gold)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
       </div>
     );
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f0fdfa' }}>
-      <header style={{ background: 'white', borderBottom: '1px solid #e2e8f0', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h1 style={{ fontSize: '22px', fontWeight: 700, margin: 0 }}>Customer dashboard</h1>
+    <div style={{ minHeight: '100vh', background: 'var(--cream)' }}>
+      <header style={{ background: 'var(--navy)', borderBottom: '2px solid var(--gold)', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h1 style={{ fontSize: '22px', fontWeight: 700, margin: 0, color: 'var(--cream)' }}>Customer dashboard</h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <button onClick={() => navigate('/customer-profile-setup')} style={{ padding: '8px 16px', background: '#f1f5f9', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 500, fontSize: '14px' }}>
+          <button
+            onClick={() => navigate('/customer-profile-setup')}
+            style={{
+              padding: '8px 16px',
+              background: 'var(--cream-mid)',
+              color: 'var(--navy)',
+              border: '1px solid var(--gold)',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: '14px',
+            }}
+          >
             Profile
           </button>
           <button onClick={handleLogout} style={{ padding: '8px 16px', background: '#dc3545', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '14px' }}>
@@ -207,7 +219,7 @@ function CustomerDashboard() {
 
       <div style={{ maxWidth: '960px', margin: '0 auto', padding: '24px' }}>
         {/* Tab navigation */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '24px', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '24px', borderBottom: '2px solid var(--gold-soft)', paddingBottom: '12px', background: 'var(--cream-dark)', marginLeft: '-24px', marginRight: '-24px', paddingLeft: '24px', paddingRight: '24px', paddingTop: '8px', borderRadius: '0 0 12px 12px' }}>
           <button style={tabStyle('providers')} onClick={() => setActiveTab('providers')}>
             <Users size={18} /> Service providers
           </button>
@@ -244,7 +256,7 @@ function CustomerDashboard() {
           <div style={cardStyle}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h2 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>Service providers</h2>
-              <button onClick={() => setShowAddProvider(!showAddProvider)} style={{ padding: '8px 16px', background: '#0d9488', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
+              <button onClick={() => setShowAddProvider(!showAddProvider)} style={{ padding: '8px 16px', background: 'var(--navy)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
                 <Plus size={18} /> Add provider
               </button>
             </div>
@@ -290,7 +302,7 @@ function CustomerDashboard() {
                   <textarea name="notes" rows={2} placeholder="Additional notes" style={inputStyle} />
                 </div>
                 <div style={{ display: 'flex', gap: '12px' }}>
-                  <button type="submit" style={{ padding: '10px 20px', background: '#0d9488', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
+                  <button type="submit" style={{ padding: '10px 20px', background: 'var(--navy)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
                     Save provider
                   </button>
                   <button type="button" onClick={() => setShowAddProvider(false)} style={{ padding: '10px 20px', background: '#f1f5f9', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
@@ -327,7 +339,7 @@ function CustomerDashboard() {
           <div style={cardStyle}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h2 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>Service appointments</h2>
-              <button onClick={() => setShowAddAppointment(!showAddAppointment)} style={{ padding: '8px 16px', background: '#0d9488', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
+              <button onClick={() => setShowAddAppointment(!showAddAppointment)} style={{ padding: '8px 16px', background: 'var(--navy)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
                 <Plus size={18} /> Add manually
               </button>
             </div>
@@ -400,7 +412,7 @@ function CustomerDashboard() {
                   <textarea name="notes" rows={2} placeholder="Additional notes" style={inputStyle} />
                 </div>
                 <div style={{ display: 'flex', gap: '12px' }}>
-                  <button type="submit" style={{ padding: '10px 20px', background: '#0d9488', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
+                  <button type="submit" style={{ padding: '10px 20px', background: 'var(--navy)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
                     Save appointment
                   </button>
                   <button type="button" onClick={() => setShowAddAppointment(false)} style={{ padding: '10px 20px', background: '#f1f5f9', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
@@ -430,7 +442,7 @@ function CustomerDashboard() {
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           {inv ? (
-                            <button onClick={() => navigate(`/customer/invoice/${inv.id}`)} style={{ padding: '6px 12px', background: '#0d9488', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>
+                            <button onClick={() => navigate(`/customer/invoice/${inv.id}`)} style={{ padding: '6px 12px', background: 'var(--navy)', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>
                               View invoice {inv.invoiceNumber}
                             </button>
                           ) : invoices.length > 0 ? (
@@ -491,7 +503,7 @@ function CustomerDashboard() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                       <span style={{ fontWeight: 600, fontSize: '16px' }}>${(inv.total || 0).toFixed(2)}</span>
                       <span style={{ fontSize: '13px', padding: '4px 10px', borderRadius: '6px', background: '#fef3c7', color: '#92400e' }}>{inv.status}</span>
-                      <button onClick={() => navigate(`/customer/invoice/${inv.id}`)} style={{ padding: '8px 14px', background: '#0d9488', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 500, fontSize: '14px' }}>
+                      <button onClick={() => navigate(`/customer/invoice/${inv.id}`)} style={{ padding: '8px 14px', background: 'var(--navy)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 500, fontSize: '14px' }}>
                         View / Pay
                       </button>
                     </div>
@@ -531,7 +543,7 @@ function CustomerDashboard() {
                       <span style={{ fontSize: '13px', padding: '4px 10px', borderRadius: '6px', background: '#dcfce7', color: '#15803d', display: 'flex', alignItems: 'center', gap: '4px' }}>
                         <CheckCircle size={14} /> Paid
                       </span>
-                      <button onClick={() => navigate(`/customer/invoice/${inv.id}`)} style={{ padding: '8px 14px', background: '#0d9488', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 500, fontSize: '14px' }}>
+                      <button onClick={() => navigate(`/customer/invoice/${inv.id}`)} style={{ padding: '8px 14px', background: 'var(--navy)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 500, fontSize: '14px' }}>
                         View
                       </button>
                     </div>
@@ -551,7 +563,7 @@ function CustomerDashboard() {
               {notifications.slice(0, 5).map((n) => (
                 <li key={n.id} style={{ padding: '10px 0', borderBottom: '1px solid #f1f5f9', fontSize: '14px' }}>
                   <strong>{n.title}</strong> {n.body && <span style={{ color: '#64748b' }}> – {n.body}</span>}
-                  {n.link && <a href={n.link} style={{ marginLeft: '8px', color: '#0d9488', fontSize: '13px' }}>View</a>}
+                  {n.link && <a href={n.link} style={{ marginLeft: '8px', color: 'var(--navy)', fontSize: '13px' }}>View</a>}
                 </li>
               ))}
             </ul>

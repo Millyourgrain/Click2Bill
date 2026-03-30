@@ -133,13 +133,13 @@ function CustomerProfile() {
   const inputStyle = { width: '100%', padding: '12px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '15px' };
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f5f5f5', padding: '24px' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--cream)', padding: '24px' }}>
       <div style={{ maxWidth: '720px', margin: '0 auto', background: 'white', borderRadius: '16px', padding: '32px', boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}>
         <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', flexWrap: 'wrap' }}>
           <button type="button" onClick={() => navigate('/dashboard')} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 14px', background: '#f0f0f0', border: '1px solid #ddd', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '600' }}>
             <LayoutDashboard size={18} /> Dashboard
           </button>
-          <button type="button" onClick={() => navigate('/customers')} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px', color: '#667eea' }}>
+          <button type="button" onClick={() => navigate('/customers')} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px', color: 'var(--gold-dark)' }}>
             <ArrowLeft size={18} /> Back to customers
           </button>
         </div>
@@ -250,7 +250,7 @@ function CustomerProfile() {
             <button type="button" onClick={() => navigate('/customers')} style={{ padding: '12px 24px', background: '#f0f0f0', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}>
               Cancel
             </button>
-            <button type="submit" disabled={loading} style={{ padding: '12px 24px', background: loading ? '#ccc' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', borderRadius: '8px', cursor: loading ? 'not-allowed' : 'pointer', fontWeight: '600' }}>
+            <button type="submit" disabled={loading} style={{ padding: '12px 24px', background: loading ? '#ccc' : 'linear-gradient(135deg, var(--navy) 0%, var(--navy-700) 100%)', color: 'white', border: 'none', borderRadius: '8px', cursor: loading ? 'not-allowed' : 'pointer', fontWeight: '600' }}>
               {loading ? 'Saving...' : isEdit ? 'Update customer' : 'Add customer'}
             </button>
           </div>

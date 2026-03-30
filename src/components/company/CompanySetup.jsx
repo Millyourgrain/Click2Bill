@@ -61,9 +61,9 @@ const PERMISSION_LABELS = [
   'Manage users',
 ];
 
-/** Four screens: 1–3, 4 & 8 (BN + GST), 9–13, 5–7 + 14 (documents + acknowledgement) */
+/** Four screens; section numbers run 1–14 in flow order (no gaps). */
 const WIZARD_PAGE_COUNT = 4;
-const WIZARD_POINT_LABELS = ['1–3', '4, 8', '9–13', '5–7, 14'];
+const WIZARD_POINT_LABELS = ['1–3', '4–6', '7–10', '11–14'];
 
 function wizardPointRange(pageIndex) {
   return WIZARD_POINT_LABELS[pageIndex] ?? '';
@@ -73,7 +73,7 @@ function Section({ num, title, children }) {
   return (
     <div style={{ marginBottom: '28px', paddingBottom: '24px', borderBottom: '1px solid #eee' }}>
       <h2 style={{ fontSize: '18px', fontWeight: '700', marginBottom: '16px', color: '#333' }}>
-        <span style={{ color: '#667eea', marginRight: '8px' }}>{num}.</span>
+        <span style={{ color: 'var(--gold-dark)', marginRight: '8px' }}>{num}.</span>
         {title}
       </h2>
       {children}
@@ -169,7 +169,7 @@ function PermissionsTableByModel({ invoiceSystem, userTransactionRole }) {
           </tbody>
         </table>
         <p style={{ fontSize: '13px', color: '#666', marginTop: '12px', marginBottom: 0 }}>
-          After you choose your personal role in section 12, that column is highlighted. In section 13 you invite two people and assign each a sign-up role — exactly one Maker and one Checker.
+          After you choose your personal role in section 9, that column is highlighted. In section 10 you invite two people and assign each a sign-up role — exactly one Maker and one Checker.
         </p>
       </div>
     );
@@ -201,6 +201,7 @@ function CompanySetup() {
     legalBusinessName: '',
     companyAddress: '',
     logoUrl: '',
+    logoPath: '',
     bnNumber: '',
     verifyDocArticlesUrl: '',
     verifyDocGstHstUrl: '',
@@ -258,6 +259,7 @@ function CompanySetup() {
         setFormData((prev) => ({
           ...prev,
           ...d,
+          logoPath: d.logoPath || prev.logoPath || '',
           verifyDocArticlesUrl: d.verifyDocArticlesUrl || d.articlesOfIncorporationUrl || '',
           governmentPhotoIdUrl: d.governmentPhotoIdUrl || d.governmentIdUrl || prev.governmentPhotoIdUrl || '',
           proofOfAddressUrl: d.proofOfAddressUrl || prev.proofOfAddressUrl || '',
@@ -290,41 +292,43 @@ function CompanySetup() {
     }
     if (step === 1) {
       const bn = formData.bnNumber.replace(/\D/g, '');
-      if (bn.length !== 9) return 'Business number (BN) must be 9 digits (point 4).';
+      if (bn.length > 0 && bn.length !== 9) {
+        return 'If you enter a CRA Business Number (BN), it must be exactly 9 digits (point 4).';
+      }
+      if (!/^\d{5}$/.test(formData.bankTransitNumber.trim())) {
+        return 'Transit number must be exactly 5 digits (point 6).';
+      }
+      if (!/^\d{3}$/.test(formData.bankInstitutionNumber.trim())) {
+        return 'Institution number must be exactly 3 digits (point 6).';
+      }
+      const acct = formData.bankAccountNumber.replace(/\s/g, '');
+      if (!/^\d{1,12}$/.test(acct)) return 'Account number must be 1–12 digits only (point 6).';
       return '';
     }
     if (step === 2) {
-      if (!/^\d{5}$/.test(formData.bankTransitNumber.trim())) {
-        return 'Transit number must be exactly 5 digits (point 9).';
-      }
-      if (!/^\d{3}$/.test(formData.bankInstitutionNumber.trim())) {
-        return 'Institution number must be exactly 3 digits (point 9).';
-      }
-      const acct = formData.bankAccountNumber.replace(/\s/g, '');
-      if (!/^\d{1,12}$/.test(acct)) return 'Account number must be 1–12 digits only (point 9).';
-      if (!formData.invoiceSystem) return 'Select an invoicing model (point 10).';
+      if (!formData.invoiceSystem) return 'Select an invoicing model (point 7).';
       if (formData.invoiceSystem === INVOICE_SYSTEM.AUTH) {
         if (!formData.eInvoiceIssuerName?.trim()) {
-          return 'Enter your full legal name as on government-issued ID (point 11).';
+          return 'Enter your full legal name as on government-issued ID (point 8).';
         }
         if (!formData.authPrimaryUserAddress?.trim()) {
-          return 'Enter your address (point 11).';
+          return 'Enter your address (point 8).';
         }
         if (!formData.authSoleSignatoryConfirmed) {
-          return 'Confirm you are the only authorized signatory (point 11).';
+          return 'Confirm you are the only authorized signatory (point 8).';
         }
       }
       if (formData.invoiceSystem === INVOICE_SYSTEM.MC) {
         if (!formData.mcPrimaryUserFullLegalName?.trim()) {
-          return 'Enter your full legal name as on government-issued ID (point 11).';
+          return 'Enter your full legal name as on government-issued ID (point 8).';
         }
-        if (!formData.mcPrimaryUserAddress?.trim()) return 'Enter your address (point 11).';
+        if (!formData.mcPrimaryUserAddress?.trim()) return 'Enter your address (point 8).';
         if (
           formData.userTransactionRole !== TRANSACTION_ROLE.MAKER
           && formData.userTransactionRole !== TRANSACTION_ROLE.CHECKER
           && formData.userTransactionRole !== TRANSACTION_ROLE.ADMIN
         ) {
-          return 'Select your role: Admin, Maker, or Checker (point 12).';
+          return 'Select your role: Admin, Maker, or Checker (point 9).';
         }
         const ownerEmail = (currentUser?.email || '').trim().toLowerCase();
         const seen = new Set();
@@ -332,31 +336,28 @@ function CompanySetup() {
           const row = mcInvitees[i];
           const em = (row.email || '').trim().toLowerCase();
           const label = `teammate ${i + 1}`;
-          if (!em) return `Enter the work email for ${label} (point 13).`;
-          if (!EMAIL_RE.test(em)) return `Invalid email for ${label} (point 13).`;
+          if (!em) return `Enter the work email for ${label} (point 10).`;
+          if (!EMAIL_RE.test(em)) return `Invalid email for ${label} (point 10).`;
           if (em === ownerEmail) return 'Invited emails cannot include your own sign-in email.';
           if (seen.has(em)) return 'The two invite emails must be different.';
           seen.add(em);
           if (row.role !== 'maker' && row.role !== 'checker') {
-            return 'Each invited teammate must be assigned sign-up role Maker or Checker (point 13).';
+            return 'Each invited teammate must be assigned sign-up role Maker or Checker (point 10).';
           }
         }
         const roles = mcInvitees.map((r) => r.role);
         const makers = roles.filter((x) => x === 'maker').length;
         const checkers = roles.filter((x) => x === 'checker').length;
         if (makers !== 1 || checkers !== 1) {
-          return 'Assign exactly one invited Maker and one invited Checker between the two teammates (point 13).';
+          return 'Assign exactly one invited Maker and one invited Checker between the two teammates (point 10).';
         }
       }
       const digitsPhone = formData.phone.replace(/\D/g, '');
-      if (digitsPhone.length < 10) return 'Cell number must be at least 10 digits (point 11).';
+      if (digitsPhone.length < 10) return 'Cell number must be at least 10 digits (point 8).';
       return '';
     }
     if (step === 3) {
       if (!formData.userTransactionRole) return 'Complete the previous step (your role / permissions).';
-      if (countVerificationUploads() < 1) return 'Upload one business verification document (point 5).';
-      if (!formData.governmentPhotoIdUrl) return 'Upload your government-issued photo ID (point 6).';
-      if (!formData.proofOfAddressUrl) return 'Upload proof of address (point 7).';
       if (!formData.roleAcknowledgement) return 'Confirm the acknowledgement (point 14).';
       return '';
     }
@@ -456,14 +457,14 @@ function CompanySetup() {
   const removeLogo = () => {
     setLogoFile(null);
     setLogoPreview(null);
-    setFormData((prev) => ({ ...prev, logoUrl: '' }));
+    setFormData((prev) => ({ ...prev, logoUrl: '', logoPath: '' }));
   };
 
   const uploadField = useCallback(async (fieldKey, storageSlug, file) => {
     if (!file) return;
     setUploadBusy(fieldKey);
     setError('');
-    const res = await uploadBinaryForSetup(file, `companySetup/${storageSlug}`, fieldKey);
+    const res = await uploadBinaryForSetup(file, storageSlug, fieldKey);
     setUploadBusy(null);
     if (res.success) {
       setFormData((prev) => ({ ...prev, [fieldKey]: res.url }));
@@ -509,7 +510,7 @@ function CompanySetup() {
     try {
       let logoUrl = formData.logoUrl;
       if (logoFile) {
-        const up = await uploadBinaryForSetup(logoFile, 'companySetup/logos', 'logo');
+        const up = await uploadBinaryForSetup(logoFile, 'logos', 'logo');
         if (!up.success) {
           setError(up.error || 'Logo upload failed');
           setLoading(false);
@@ -600,17 +601,17 @@ function CompanySetup() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', padding: '40px 20px' }}>
-      <div style={{ maxWidth: '800px', margin: '0 auto', background: 'white', borderRadius: '16px', padding: '48px', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--cream)', padding: '40px 20px' }}>
+      <div style={{ maxWidth: '800px', margin: '0 auto', background: 'var(--white)', borderRadius: '16px', padding: '48px', border: '1px solid var(--cream-mid)', boxShadow: 'var(--portal-shadow)' }}>
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <div style={{ width: '64px', height: '64px', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+          <div style={{ width: '64px', height: '64px', background: 'linear-gradient(135deg, var(--navy) 0%, var(--navy-700) 100%)', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', border: '2px solid var(--gold)' }}>
             <Building size={32} color="white" />
           </div>
           <h1 style={{ fontSize: '28px', fontWeight: '700', marginBottom: '8px' }}>
             {isEditing ? 'Update Your Company Profile' : 'Company Profile Setup'}
           </h1>
           <p style={{ color: '#666', fontSize: '15px' }}>
-            Work through the flow in order. Step 2 covers your BN and optional HST/GST (points 4 and 8). On the last step you upload business verification, photo ID, and proof of address (points 5–7), then confirm the acknowledgement (14).
+            Work through the flow in order. Points are numbered 1–14 in sequence: step 2 is 4–6 (BN, HST/GST, and banking), step 3 is 7–10 (invoicing through teammate invites), and the last step is 11–14. Points 11–13 (verification uploads) are optional; point 14 (acknowledgement) is required to complete setup.
           </p>
         </div>
 
@@ -631,13 +632,16 @@ function CompanySetup() {
           <div style={{ marginBottom: '24px', padding: '16px', background: '#f8f9fa', borderRadius: '12px', border: '1px solid #e8e8e8' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
               <span style={{ fontWeight: '700', color: '#333' }}>Setup workflow</span>
-              <span style={{ fontSize: '14px', color: '#667eea', fontWeight: '600' }}>Step {wizardStep + 1} of {WIZARD_PAGE_COUNT}</span>
+              <span style={{ fontSize: '14px', color: 'var(--gold-dark)', fontWeight: '600' }}>Step {wizardStep + 1} of {WIZARD_PAGE_COUNT}</span>
             </div>
             <p style={{ fontSize: '14px', color: '#555', margin: '0 0 12px', lineHeight: 1.5 }}>
               Each step shows a small batch of numbered points. On this page: <strong>{wizardPointRange(wizardStep)}</strong>.
+              {wizardStep === 3 && (
+                <span> Points <strong>11–13</strong> (uploads) are optional; only point <strong>14</strong> (acknowledgement) is required on this step.</span>
+              )}
             </p>
             <div style={{ height: '8px', background: '#e5e7eb', borderRadius: '4px', overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${((wizardStep + 1) / WIZARD_PAGE_COUNT) * 100}%`, background: 'linear-gradient(90deg, #667eea, #764ba2)', borderRadius: '4px', transition: 'width 0.25s ease' }} />
+              <div style={{ height: '100%', width: `${((wizardStep + 1) / WIZARD_PAGE_COUNT) * 100}%`, background: 'linear-gradient(90deg, var(--navy), var(--gold))', borderRadius: '4px', transition: 'width 0.25s ease' }} />
             </div>
           </div>
 
@@ -669,6 +673,9 @@ function CompanySetup() {
           </Section>
 
           <Section num={3} title="Company logo (optional)">
+            <p style={{ fontSize: '14px', color: '#555', marginTop: 0, marginBottom: '12px' }}>
+              If you add a logo, it is uploaded to <strong>Firebase Storage</strong> when you complete this setup (or update your profile).
+            </p>
             {!logoPreview ? (
               <label style={{ display: 'block', padding: '24px', border: '2px dashed #ccc', borderRadius: '8px', textAlign: 'center', cursor: 'pointer' }}>
                 <Upload size={24} color="#999" style={{ marginBottom: '8px' }} />
@@ -690,26 +697,23 @@ function CompanySetup() {
           {wizardStep === 1 && (
           <>
           <Section num={4} title="Business number (BN)">
-            <label style={labelStyle}>CRA Business Number (BN) *</label>
+            <label style={labelStyle}>CRA Business Number (BN)</label>
             <div style={iconWrap}>
               <Hash size={18} style={iconStyle} />
-              <input type="text" name="bnNumber" value={formData.bnNumber} onChange={handleChange} required placeholder="9-digit CRA BN" style={inputStyle} />
+              <input type="text" name="bnNumber" value={formData.bnNumber} onChange={handleChange} placeholder="Optional — 9-digit CRA BN if you have one" style={inputStyle} />
             </div>
+            <p style={{ fontSize: '13px', color: '#666', marginTop: '8px', marginBottom: 0 }}>Leave blank if you do not have a BN yet; you can add it when you update your profile.</p>
           </Section>
 
-          <Section num={8} title="HST/GST registration number (if applicable)">
+          <Section num={5} title="HST/GST registration number (if applicable)">
             <label style={labelStyle}>HST/GST registration number</label>
             <div style={iconWrap}>
               <Hash size={18} style={iconStyle} />
               <input type="text" name="gstNumber" value={formData.gstNumber} onChange={handleChange} placeholder="e.g. 123456789 RT0001 — leave blank if not registered" style={inputStyle} />
             </div>
           </Section>
-          </>
-          )}
 
-          {wizardStep === 2 && (
-          <>
-          <Section num={9} title="Payment information (direct deposit)">
+          <Section num={6} title="Payment information (direct deposit)">
             <p style={{ fontSize: '14px', color: '#555', marginTop: 0 }}>Canadian clearing account details for this company.</p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
               <div>
@@ -726,15 +730,19 @@ function CompanySetup() {
               <input type="text" name="bankAccountNumber" value={formData.bankAccountNumber} onChange={handleChange} required inputMode="numeric" maxLength={12} placeholder="Account number" style={{ ...inputStyle, paddingLeft: '12px' }} />
             </div>
           </Section>
+          </>
+          )}
 
-          <Section num={10} title="Invoicing model & permissions">
+          {wizardStep === 2 && (
+          <>
+          <Section num={7} title="Invoicing model & permissions">
             <p style={{ fontSize: '14px', color: '#555', marginTop: 0 }}>How will your organization use approvals? The permissions table below updates for your choice — only the roles that apply to this model are shown.</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
-              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', padding: '12px', border: formData.invoiceSystem === INVOICE_SYSTEM.AUTH ? '2px solid #667eea' : '1px solid #e0e0e0', borderRadius: '8px' }}>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', padding: '12px', border: formData.invoiceSystem === INVOICE_SYSTEM.AUTH ? '2px solid var(--gold-dark)' : '1px solid #e0e0e0', borderRadius: '8px' }}>
                 <input type="radio" name="invoiceSystem" checked={formData.invoiceSystem === INVOICE_SYSTEM.AUTH} onChange={() => setInvoiceSystem(INVOICE_SYSTEM.AUTH)} />
                 <span><strong>Authorized signatory</strong> — One person creates and approves invoices.</span>
               </label>
-              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', padding: '12px', border: formData.invoiceSystem === INVOICE_SYSTEM.MC ? '2px solid #667eea' : '1px solid #e0e0e0', borderRadius: '8px' }}>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', padding: '12px', border: formData.invoiceSystem === INVOICE_SYSTEM.MC ? '2px solid var(--gold-dark)' : '1px solid #e0e0e0', borderRadius: '8px' }}>
                 <input type="radio" name="invoiceSystem" checked={formData.invoiceSystem === INVOICE_SYSTEM.MC} onChange={() => setInvoiceSystem(INVOICE_SYSTEM.MC)} />
                 <span><strong>Maker–Checker</strong> — One person creates invoices; a separate person approves.</span>
               </label>
@@ -744,7 +752,7 @@ function CompanySetup() {
           </Section>
 
           <Section
-            num={11}
+            num={8}
             title={
               formData.invoiceSystem === INVOICE_SYSTEM.AUTH
                 ? 'Authorized signatory — identity & contact'
@@ -845,15 +853,15 @@ function CompanySetup() {
               </>
             )}
             {!formData.invoiceSystem && (
-              <p style={{ fontSize: '14px', color: '#888', margin: 0 }}>Select an invoicing model in section 10 first.</p>
+              <p style={{ fontSize: '14px', color: '#888', margin: 0 }}>Select an invoicing model in section 7 first.</p>
             )}
           </Section>
 
-          <Section num={12} title="Your role in this transaction">
+          <Section num={9} title="Your role in this transaction">
             {formData.invoiceSystem === INVOICE_SYSTEM.MC && (
               <>
                 <p style={{ fontSize: '14px', color: '#555', marginTop: 0, marginBottom: '12px' }}>
-                  Choose whether <strong>you</strong> will be an Admin, Maker, or Checker (see section 10). In section 13 you invite exactly <strong>two</strong> teammates and assign each a sign-up role (one Maker, one Checker).
+                  Choose whether <strong>you</strong> will be an Admin, Maker, or Checker (see section 7). In section 10 you invite exactly <strong>two</strong> teammates and assign each a sign-up role (one Maker, one Checker).
                 </p>
                 <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', flexDirection: 'column' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
@@ -901,17 +909,17 @@ function CompanySetup() {
             {formData.invoiceSystem === INVOICE_SYSTEM.AUTH && (
               <div style={{ padding: '16px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: '8px' }}>
                 <p style={{ fontSize: '14px', color: '#14532d', margin: 0, lineHeight: 1.5 }}>
-                  <strong>Single-user model.</strong> Only you may use this company account on the platform. Your role is <strong>authorized signatory</strong> (all permissions in section 10 apply to you). No teammate invitations are used for this model.
+                  <strong>Single-user model.</strong> Only you may use this company account on the platform. Your role is <strong>authorized signatory</strong> (all permissions in section 7 apply to you). No teammate invitations are used for this model.
                 </p>
               </div>
             )}
             {!formData.invoiceSystem && (
-              <p style={{ fontSize: '14px', color: '#888', margin: 0 }}>Select an invoicing model in section 10 first.</p>
+              <p style={{ fontSize: '14px', color: '#888', margin: 0 }}>Select an invoicing model in section 7 first.</p>
             )}
           </Section>
 
           {formData.invoiceSystem === INVOICE_SYSTEM.MC && (
-            <Section num={13} title="Invite two teammates — one Maker, one Checker">
+            <Section num={10} title="Invite two teammates — one Maker, one Checker">
               <p style={{ fontSize: '14px', color: '#555', marginTop: 0, marginBottom: '16px', lineHeight: 1.5 }}>
                 Enter a work email for each person and choose their <strong>sign-up role</strong> (Maker or Checker). You must assign exactly one Maker and one Checker between the two invites. Each person receives a sign-up link for the role you set.
               </p>
@@ -957,15 +965,15 @@ function CompanySetup() {
 
           {wizardStep === 3 && (
           <>
-          <Section num={5} title="Business verification — upload one document">
+          <Section num={11} title="Business verification — upload one document (optional)">
             <p style={{ fontSize: '14px', color: '#555', marginTop: 0, marginBottom: '16px' }}>
-              Choose a document type, then upload <strong>one</strong> file (image or PDF, max 10MB). The file URL is saved to your company record in Firebase.
+              Optional — choose a document type, then upload <strong>one</strong> file (image or PDF, max 10MB). Files are stored in <strong>Firebase Storage</strong> under your business folder; the download URL is saved on your company profile in Firestore.
             </p>
-            <p style={{ fontSize: '13px', color: countVerificationUploads() >= 1 ? '#0d9488' : '#b45309', marginBottom: '16px', fontWeight: '600' }}>
-              Verification document: {countVerificationUploads() >= 1 ? 'provided' : 'required (1)'}
+            <p style={{ fontSize: '13px', color: countVerificationUploads() >= 1 ? 'var(--success)' : '#64748b', marginBottom: '16px', fontWeight: '600' }}>
+              Verification document: {countVerificationUploads() >= 1 ? 'provided' : 'not uploaded'}
             </p>
             <div style={{ marginBottom: '16px' }}>
-              <label style={labelStyle}>Document type *</label>
+              <label style={labelStyle}>Document type</label>
               <select
                 value={verifyDocType}
                 onChange={(e) => setVerifyDocType(e.target.value)}
@@ -986,7 +994,7 @@ function CompanySetup() {
                 onChange={(e) => {
                   const f = e.target.files?.[0];
                   if (f && verifyDocType) {
-                    uploadField(verifyDocType, 'verification', f);
+                    uploadField(verifyDocType, 'businessVerification', f);
                     setVerifyDocType('');
                   }
                   e.target.value = '';
@@ -1004,7 +1012,7 @@ function CompanySetup() {
                     <li key={field} style={{ marginBottom: '6px' }}>
                       <span style={{ fontWeight: '500' }}>{label}</span>
                       {' — '}
-                      <a href={formData[field]} target="_blank" rel="noreferrer" style={{ color: '#667eea' }}>View file</a>
+                      <a href={formData[field]} target="_blank" rel="noreferrer" style={{ color: 'var(--gold-dark)' }}>View file</a>
                     </li>
                   ))}
                 </ul>
@@ -1012,9 +1020,9 @@ function CompanySetup() {
             )}
           </Section>
 
-          <Section num={6} title="Government-issued photo ID">
+          <Section num={12} title="Government-issued photo ID (optional)">
             <p style={{ fontSize: '14px', color: '#555', marginTop: 0 }}>
-              Upload a clear copy of <strong>photo identification</strong> issued by a government (e.g. driver’s licence, passport) — image or PDF, max 10MB.
+              Optional — upload a clear copy of <strong>photo identification</strong> issued by a government (e.g. driver’s licence, passport) — image or PDF, max 10MB.
             </p>
             <input
               type="file"
@@ -1022,21 +1030,21 @@ function CompanySetup() {
               disabled={uploadBusy === 'governmentPhotoIdUrl'}
               onChange={(e) => {
                 const f = e.target.files?.[0];
-                if (f) uploadField('governmentPhotoIdUrl', 'id', f);
+                if (f) uploadField('governmentPhotoIdUrl', 'identityDocuments', f);
                 e.target.value = '';
               }}
             />
             {uploadBusy === 'governmentPhotoIdUrl' && <span style={{ fontSize: '13px' }}> Uploading…</span>}
             {formData.governmentPhotoIdUrl && (
               <div style={{ marginTop: '8px' }}>
-                <a href={formData.governmentPhotoIdUrl} target="_blank" rel="noreferrer" style={{ fontSize: '14px', color: '#667eea' }}>View uploaded photo ID</a>
+                <a href={formData.governmentPhotoIdUrl} target="_blank" rel="noreferrer" style={{ fontSize: '14px', color: 'var(--gold-dark)' }}>View uploaded photo ID</a>
               </div>
             )}
           </Section>
 
-          <Section num={7} title="Proof of address">
+          <Section num={13} title="Proof of address (optional)">
             <p style={{ fontSize: '14px', color: '#555', marginTop: 0 }}>
-              Upload a document showing your <strong>current address</strong> (e.g. utility bill, bank statement, lease — image or PDF, max 10MB).
+              Optional — upload a document showing your <strong>current address</strong> (e.g. utility bill, bank statement, lease — image or PDF, max 10MB).
             </p>
             <input
               type="file"
@@ -1044,19 +1052,19 @@ function CompanySetup() {
               disabled={uploadBusy === 'proofOfAddressUrl'}
               onChange={(e) => {
                 const f = e.target.files?.[0];
-                if (f) uploadField('proofOfAddressUrl', 'proof-address', f);
+                if (f) uploadField('proofOfAddressUrl', 'identityDocuments', f);
                 e.target.value = '';
               }}
             />
             {uploadBusy === 'proofOfAddressUrl' && <span style={{ fontSize: '13px' }}> Uploading…</span>}
             {formData.proofOfAddressUrl && (
               <div style={{ marginTop: '8px' }}>
-                <a href={formData.proofOfAddressUrl} target="_blank" rel="noreferrer" style={{ fontSize: '14px', color: '#667eea' }}>View uploaded proof of address</a>
+                <a href={formData.proofOfAddressUrl} target="_blank" rel="noreferrer" style={{ fontSize: '14px', color: 'var(--gold-dark)' }}>View uploaded proof of address</a>
               </div>
             )}
           </Section>
 
-          <Section num={14} title="Acknowledgement">
+          <Section num={14} title="Acknowledgement (required)">
             {formData.userTransactionRole ? (
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', cursor: 'pointer' }}>
                 <input type="checkbox" name="roleAcknowledgement" checked={formData.roleAcknowledgement} onChange={handleChange} style={{ marginTop: '4px' }} />
@@ -1065,8 +1073,8 @@ function CompanySetup() {
             ) : (
               <p style={{ fontSize: '14px', color: '#888', margin: 0 }}>
                 {!formData.invoiceSystem
-                  ? 'Select an invoicing model in section 10 first.'
-                  : 'Select your role (Admin, Maker, or Checker) in section 12.'}
+                  ? 'Select an invoicing model in section 7 first.'
+                  : 'Select your role (Admin, Maker, or Checker) in section 9.'}
               </p>
             )}
           </Section>
@@ -1095,13 +1103,13 @@ function CompanySetup() {
             )}
             <div style={{ flex: '1 1 120px' }} />
             {wizardStep < WIZARD_PAGE_COUNT - 1 && (
-              <button type="button" onClick={goNext} style={{ padding: '14px 24px', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', borderRadius: '8px', fontSize: '16px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button type="button" onClick={goNext} style={{ padding: '14px 24px', background: 'var(--navy)', color: 'white', border: 'none', borderRadius: '8px', fontSize: '16px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 Next
                 <span style={{ fontSize: '13px', opacity: 0.95 }}>(next: {wizardPointRange(wizardStep + 1)})</span>
               </button>
             )}
             {wizardStep === WIZARD_PAGE_COUNT - 1 && (
-              <button type="submit" disabled={loading} style={{ padding: '14px 24px', background: loading ? '#ccc' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', borderRadius: '8px', fontSize: '16px', fontWeight: '600', cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+              <button type="submit" disabled={loading} style={{ padding: '14px 24px', background: loading ? '#ccc' : 'var(--navy)', color: 'white', border: 'none', borderRadius: '8px', fontSize: '16px', fontWeight: '600', cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                 {loading ? 'Saving…' : <><CheckCircle size={20} />{isEditing ? 'Update profile' : 'Complete setup'}</>}
               </button>
             )}

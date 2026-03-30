@@ -47,7 +47,7 @@ function DashboardCustomersTab() {
   if (loading) {
     return (
       <div style={{ padding: '48px', textAlign: 'center', color: '#666' }}>
-        <div style={{ width: '40px', height: '40px', border: '3px solid #e5e7eb', borderTopColor: '#667eea', borderRadius: '50%', animation: 'spin 0.9s linear infinite', margin: '0 auto 12px' }} />
+        <div style={{ width: '40px', height: '40px', border: '3px solid #e5e7eb', borderTopColor: 'var(--gold)', borderRadius: '50%', animation: 'spin 0.9s linear infinite', margin: '0 auto 12px' }} />
         Loading customers…
       </div>
     );
@@ -72,7 +72,7 @@ function DashboardCustomersTab() {
           onClick={() => navigate('/invoice')}
           style={{
             padding: '10px 18px',
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            background: 'linear-gradient(135deg, var(--navy) 0%, var(--navy-700) 100%)',
             color: 'white',
             border: 'none',
             borderRadius: '8px',
@@ -139,7 +139,7 @@ function DashboardCustomersTab() {
       )}
 
       <p style={{ fontSize: '13px', color: '#9ca3af', marginTop: '20px', marginBottom: 0 }}>
-        Open the <button type="button" onClick={() => navigate('/customers')} style={{ background: 'none', border: 'none', color: '#667eea', cursor: 'pointer', fontWeight: '600', padding: 0 }}>full customer list</button> to edit profiles, schedule visits, or send sign-up links.
+        Open the <button type="button" onClick={() => navigate('/customers')} style={{ background: 'none', border: 'none', color: 'var(--gold)', cursor: 'pointer', fontWeight: '600', padding: 0 }}>full customer list</button> to edit profiles, schedule visits, or send sign-up links.
       </p>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>

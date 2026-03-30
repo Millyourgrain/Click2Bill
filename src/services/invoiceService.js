@@ -89,6 +89,7 @@ export const saveInvoice = async (invoiceData) => {
       signature: invoiceData.signature || '',
       signatoryTitle: invoiceData.signatoryTitle || '',
       signatoryPrintedName: invoiceData.signatoryPrintedName || '',
+      signatorySignedAt: invoiceData.signatorySignedAt || null,
       portalToken: invoiceData.portalToken || null,
       issuerPaymentEmail: invoiceData.issuerPaymentEmail || '',
       bankTransitNumber: invoiceData.bankTransitNumber || '',

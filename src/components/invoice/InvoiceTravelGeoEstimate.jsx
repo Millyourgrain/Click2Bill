@@ -85,10 +85,10 @@ function InvoiceTravelGeoEstimate({
   return (
     <div style={{ padding: '16px', background: '#f0f9ff', borderRadius: '8px', border: '1px solid #bae6fd', marginBottom: '16px' }}>
       <h4 style={{ fontSize: '14px', fontWeight: '700', margin: '0 0 8px', color: '#0369a1', display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <MapPin size={16} /> Record travel (mileage only)
+        <MapPin size={16} /> Record the travel distance
       </h4>
       <p style={{ fontSize: '13px', color: '#475569', margin: '0 0 12px', lineHeight: 1.45 }}>
-        Enter origin and destination. Distance is from Geoapify; choose one-way or round trip for what we store in your travel register. Not included in the invoice total.
+        Enter origin and destination. Distance comes from routing; choose one-way or round trip. This saves the trip to your <strong>travel register</strong> only — it does not add a line or amount to this invoice.
       </p>
       <div style={{ display: 'grid', gap: '10px', marginBottom: '12px' }}>
         <div>
@@ -137,7 +137,7 @@ function InvoiceTravelGeoEstimate({
           marginBottom: '10px',
         }}
       >
-        {loading ? 'Calculating…' : 'Calculate distance & record trip'}
+        {loading ? 'Calculating…' : 'Calculate distance and save to register'}
       </button>
 
       {error && (

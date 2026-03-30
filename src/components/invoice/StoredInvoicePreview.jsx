@@ -233,38 +233,25 @@ export default function StoredInvoicePreview({ inv, rootId = 'stored-invoice-pre
         </div>
       </div>
 
-      <div
-        className="invoice-business-footer-band"
-        style={{
-          margin: '24px 32px 0',
-          padding: '18px 20px',
-          background: '#f4f6f8',
-          borderTop: '2px solid #dee2e6',
-          fontSize: '12px',
-          color: '#495057',
-          lineHeight: 1.5,
-        }}
-      >
-        <div style={{ fontWeight: '700', fontSize: '13px', marginBottom: '10px', color: '#212529', letterSpacing: '0.04em' }}>
-          SUPPLIER / VENDOR DETAILS
-        </div>
-        <div style={{ fontWeight: '600', color: '#212529' }}>{inv.legalBusinessName || inv.companyName}</div>
-        {inv.operationalNameDba && <div>DBA: {inv.operationalNameDba}</div>}
-        {inv.companyAddress && <div style={{ whiteSpace: 'pre-line', marginTop: '4px' }}>{inv.companyAddress}</div>}
-        <div style={{ marginTop: '8px' }}>
-          {(inv.issuerPaymentEmail || inv.companyEmail) && <div>Email: {inv.issuerPaymentEmail || inv.companyEmail}</div>}
-          {inv.gstNumber && <div>HST/GST registration no.: {inv.gstNumber}</div>}
-        </div>
-      </div>
-
       {inv.signature && (
-        <div className="signature-section-footer" style={{ margin: '28px 32px 0' }}>
+        <div
+          className="signature-section-footer"
+          style={{
+            margin: '24px 32px 0',
+            paddingTop: '16px',
+            paddingBottom: '20px',
+            borderTop: '1px solid #e9ecef',
+            borderRadius: '0 0 8px 8px',
+          }}
+        >
           <div className="signature-label">Authorized signature</div>
           <img src={inv.signature} alt="" className="signature-image" crossOrigin="anonymous" />
           <div className="signature-printed-lines" style={{ marginTop: '14px', fontSize: '13px', color: '#212529', lineHeight: 1.5 }}>
             {inv.signatoryPrintedName && <div style={{ fontWeight: '600' }}>{inv.signatoryPrintedName}</div>}
             {(inv.signatoryTitle || '').trim() && <div style={{ color: '#495057' }}>{inv.signatoryTitle.trim()}</div>}
-            <div style={{ color: '#495057' }}>Date: {formatInvoiceDateLong(inv.date)}</div>
+            <div style={{ color: '#495057' }}>
+              Date signed: {formatInvoiceDateLong(inv.signatorySignedAt || inv.date)}
+            </div>
           </div>
         </div>
       )}

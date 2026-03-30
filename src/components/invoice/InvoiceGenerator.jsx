@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Download, Plus, Trash2, Send, Home, Mail, FileCheck, CheckCircle } from 'lucide-react';
+import { Download, Plus, Trash2, Send, Home, Mail, FileCheck, CheckCircle, Calculator, MapPin } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { getCompanyInfo } from '../../services/companyService';
 import { getCustomer, getCustomers, upsertCustomerFromInvoice, findRecurringCustomerByName } from '../../services/customerService';
@@ -97,12 +97,17 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
   const [servicePeriodVisits, setServicePeriodVisits] = useState([]); // visits with check-in/out for invoice display
 
   const [signature, setSignature] = useState(null);
+  /** ISO date (YYYY-MM-DD) when user authorized the signature; shown on preview/PDF. */
+  const [signatorySignedAt, setSignatorySignedAt] = useState(null);
   /** Printed under signature; user-editable, default from org role. */
   const [signatoryTitle, setSignatoryTitle] = useState('');
   const [isDrawing, setIsDrawing] = useState(false);
   const [customers, setCustomers] = useState([]);
   const [payorDifferentFromCustomer, setPayorDifferentFromCustomer] = useState(false);
   const [isRecurringCustomer, setIsRecurringCustomer] = useState(false);
+  /** Mileage-only form (travel register, no invoice line). */
+  const [showTravelDistancePanel, setShowTravelDistancePanel] = useState(false);
+  const travelDistanceSectionRef = useRef(null);
   const addedTravelIdsRef = useRef(new Set());
   const signatureRef = useRef(null);
   const hasSavedAfterLoadRef = useRef(false);
@@ -119,6 +124,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
         customerId,
         servicePeriodVisits,
         signature,
+        signatorySignedAt,
         signatoryTitle,
         reminderEnabled,
         reminderFrequency,
@@ -164,6 +170,10 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
       if (draft.isRecurringCustomer != null) setIsRecurringCustomer(!!draft.isRecurringCustomer);
       if (draft.servicePeriodVisits?.length) setServicePeriodVisits(draft.servicePeriodVisits);
       if (draft.signature) setSignature(draft.signature);
+      else setSignature(null);
+      if (draft.signatorySignedAt != null) setSignatorySignedAt(draft.signatorySignedAt);
+      else if (draft.signature && draft.invoice?.date) setSignatorySignedAt(draft.invoice.date);
+      else if (!draft.signature) setSignatorySignedAt(null);
       if (draft.signatoryTitle != null) setSignatoryTitle(String(draft.signatoryTitle));
       if (draft.reminderEnabled != null) setReminderEnabled(draft.reminderEnabled);
       if (draft.reminderFrequency) setReminderFrequency(draft.reminderFrequency);
@@ -267,7 +277,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
     }
     if (step !== 'preview' || !savedInvoiceId) saveDraft();
     else sessionStorage.removeItem(STORAGE_KEY);
-  }, [invoice, step, headerTemplate, visitId, customerId, payorDifferentFromCustomer, isRecurringCustomer, servicePeriodVisits, signature, signatoryTitle, reminderEnabled, reminderFrequency, savedInvoiceId]);
+  }, [invoice, step, headerTemplate, visitId, customerId, payorDifferentFromCustomer, isRecurringCustomer, servicePeriodVisits, signature, signatorySignedAt, signatoryTitle, reminderEnabled, reminderFrequency, savedInvoiceId]);
 
   useEffect(() => {
     getCustomers().then((r) => r.success && setCustomers(r.data || []));
@@ -325,6 +335,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
         manualTaxAmount: isCadCurrency(cur) ? 0 : (inv.manualTaxAmount ?? inv.tax ?? 0),
       });
       setSignature(inv.signature || null);
+      setSignatorySignedAt(inv.signatorySignedAt || inv.date || null);
       setSignatoryTitle((inv.signatoryTitle && String(inv.signatoryTitle).trim()) ? inv.signatoryTitle.trim() : getInvoiceSignatoryTitle(companyInfo));
       setServicePeriodVisits(inv.servicePeriodVisits || []);
       setVisitId(inv.visitId || null);
@@ -367,6 +378,14 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
     } catch (e) { /* ignore */ }
     navigate('/travel');
   };
+
+  useEffect(() => {
+    if (!showTravelDistancePanel || !travelDistanceSectionRef.current) return;
+    const t = requestAnimationFrame(() => {
+      travelDistanceSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+    return () => cancelAnimationFrame(t);
+  }, [showTravelDistancePanel]);
 
   const loadCompanyData = async () => {
     try {
@@ -620,13 +639,28 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     setSignature(null);
+    setSignatorySignedAt(null);
   };
 
   const saveSignature = () => {
     const canvas = signatureRef.current;
     setSignature(canvas.toDataURL());
-    setStep('delivery');
+    setSignatorySignedAt(new Date().toISOString().split('T')[0]);
+    setStep('preview');
   };
+
+  useEffect(() => {
+    if (step !== 'signature' || !signature) return;
+    const canvas = signatureRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+    img.onload = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    };
+    img.src = signature;
+  }, [step, signature]);
 
   const handleSaveInvoice = async (status = 'sent', method = null) => {
     setIsSaving(true);
@@ -667,6 +701,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
         signature: signature,
         signatoryTitle: (signatoryTitle && String(signatoryTitle).trim()) || getInvoiceSignatoryTitle(companyInfo),
         signatoryPrintedName: getInvoiceSignatoryPrintedName(companyInfo, currentUser),
+        signatorySignedAt: signatorySignedAt || invoice.date || null,
         portalToken: status === 'sent' ? generateInvoicePortalToken() : null,
         issuerPaymentEmail: companyInfo?.email || '',
         bankTransitNumber: companyInfo?.bankTransitNumber || '',
@@ -944,6 +979,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
   };
 
   const currentTemplate = headerTemplates[headerTemplate];
+  const showDeliverOnPreview = !savedInvoiceId || !!editingInvoiceId;
 
   if (loadingCompany) {
     return (
@@ -959,8 +995,8 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
         {[
           { id: 'form', label: 'Form' },
           { id: 'signature', label: 'Signing' },
-          { id: 'delivery', label: 'Deliver' },
           { id: 'preview', label: 'Preview' },
+          { id: 'delivery', label: 'Deliver' },
         ].map(({ id: s, label }, idx) => (
           <div key={s} className="step-item">
             <div className={`step-number ${step === s ? 'active' : ''}`}>
@@ -1364,37 +1400,82 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
 
           <div className="form-section">
             <h3 className="subsection-title">Travel (optional)</h3>
-            <p style={{ fontSize: '14px', color: '#666', marginBottom: '12px', lineHeight: 1.5 }}>
-              Billable travel lines appear only when you add amounts (for example from the Travel register). Mileage-only trips below are saved for your travel register and are <strong>not</strong> added to the invoice total or PDF.
+            <p style={{ fontSize: '14px', color: '#666', marginBottom: '16px', lineHeight: 1.5 }}>
+              Choose whether to bill estimated travel on this invoice or only log kilometres in your travel register.
             </p>
-            <InvoiceTravelGeoEstimate
-              invoiceNumber={invoice.invoiceNumber}
-              invoiceId={savedInvoiceId}
-              travelDate={invoice.date}
-            />
-            <button
-              type="button"
-              onClick={goToTravelForBilling}
+            <div
               style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '10px 18px',
-                background: 'linear-gradient(135deg, var(--navy) 0%, var(--navy-700) 100%)',
-                color: 'white',
-                border: 'none',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                fontWeight: '600',
-                fontSize: '14px',
-                marginBottom: '12px',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+                gap: '16px',
+                marginBottom: '16px',
               }}
             >
-              Add travel cost
-            </button>
-            <p style={{ fontSize: '13px', color: '#64748b', margin: '0', lineHeight: 1.5 }}>
-              Opens the travel cost estimator; use <strong>Add to invoice</strong> there to include the estimate on this invoice.
-            </p>
+              <div>
+                <button
+                  type="button"
+                  onClick={goToTravelForBilling}
+                  style={{
+                    width: '100%',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    padding: '12px 18px',
+                    background: 'linear-gradient(135deg, var(--navy) 0%, var(--navy-700) 100%)',
+                    color: 'white',
+                    border: '1px solid var(--gold)',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontWeight: '600',
+                    fontSize: '14px',
+                    boxSizing: 'border-box',
+                  }}
+                >
+                  <Calculator size={18} aria-hidden /> Add travel cost
+                </button>
+                <p style={{ fontSize: '13px', color: '#64748b', margin: '8px 0 0', lineHeight: 1.5 }}>
+                  Opens the <strong>travel cost estimator</strong>. After you calculate a trip, use <strong>Add to invoice</strong> there to add the line to this invoice and save distance and cost in your travel register.
+                </p>
+              </div>
+              <div>
+                <button
+                  type="button"
+                  aria-expanded={showTravelDistancePanel}
+                  onClick={() => setShowTravelDistancePanel((open) => !open)}
+                  style={{
+                    width: '100%',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    padding: '12px 18px',
+                    background: showTravelDistancePanel ? '#e0f2fe' : 'white',
+                    color: '#0c4a6e',
+                    border: showTravelDistancePanel ? '2px solid #0284c7' : '2px solid #bae6fd',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontWeight: '600',
+                    fontSize: '14px',
+                    boxSizing: 'border-box',
+                  }}
+                >
+                  <MapPin size={18} aria-hidden /> Record the travel distance
+                </button>
+                <p style={{ fontSize: '13px', color: '#64748b', margin: '8px 0 0', lineHeight: 1.5 }}>
+                  Log one-way or round-trip distance only. Saved to your <strong>travel register</strong> — not added to this invoice total.
+                </p>
+              </div>
+            </div>
+            {showTravelDistancePanel && (
+              <div ref={travelDistanceSectionRef}>
+                <InvoiceTravelGeoEstimate
+                  invoiceNumber={invoice.invoiceNumber}
+                  invoiceId={savedInvoiceId}
+                  travelDate={invoice.date}
+                />
+              </div>
+            )}
           </div>
 
           {invoice.travelItems.length > 0 && (
@@ -1497,7 +1578,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
         <div className="form-container">
           <h2 className="section-title">Signing</h2>
           <p className="signature-description">
-            Please sign below to authorize this invoice
+            Please sign below to authorize this invoice. Next you&apos;ll preview the invoice, then choose how to deliver it.
           </p>
 
           <div className="form-section" style={{ maxWidth: '800px', marginBottom: '20px' }}>
@@ -1534,7 +1615,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
               Back to form
             </button>
             <button onClick={saveSignature} className="primary-button">
-              Save &amp; continue
+              Save &amp; continue to preview
             </button>
           </div>
         </div>
@@ -1642,8 +1723,14 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
           )}
 
           <div style={{ textAlign: 'center', marginTop: '24px' }}>
-            <button type="button" onClick={() => setStep('preview')} className="secondary-button">
-              Back to preview
+            <button
+              type="button"
+              onClick={() => navigate('/dashboard')}
+              className="secondary-button"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+            >
+              <Home size={20} aria-hidden />
+              Back to dashboard
             </button>
           </div>
         </div>
@@ -1651,6 +1738,13 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
 
       {step === 'preview' && (
         <div>
+          <h2 className="section-title" style={{ textAlign: 'center', marginBottom: '8px' }}>Preview</h2>
+          <p style={{ textAlign: 'center', color: '#64748b', marginBottom: '20px', fontSize: '15px', lineHeight: 1.5, maxWidth: '560px', marginLeft: 'auto', marginRight: 'auto' }}>
+            {savedInvoiceId
+              ? 'Your invoice has been saved. You can return to the dashboard, download a PDF, or send the customer link again by email.'
+              : 'Check layout, signature, and totals. Use the actions below to edit, download a PDF, or continue to delivery.'}
+          </p>
+
           {savedInvoiceId && (
             <div style={{
               background: '#d4edda',
@@ -1874,72 +1968,69 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
               </div>
             </div>
 
-            {companyInfo && (
+            {signature && (
               <div
-                className="invoice-business-footer-band"
+                className="signature-section-footer"
                 style={{
                   margin: '24px 32px 0',
-                  padding: '18px 20px',
-                  background: '#f4f6f8',
-                  borderTop: '2px solid #dee2e6',
-                  fontSize: '12px',
-                  color: '#495057',
-                  lineHeight: 1.5
+                  paddingBottom: '20px',
+                  paddingTop: '16px',
+                  borderTop: '1px solid #e9ecef',
+                  borderRadius: '0 0 8px 8px',
                 }}
               >
-                <div style={{ fontWeight: '700', fontSize: '13px', marginBottom: '10px', color: '#212529', letterSpacing: '0.04em' }}>
-                  SUPPLIER / VENDOR DETAILS
-                </div>
-                <div style={{ fontWeight: '600', color: '#212529' }}>
-                  {companyInfo.legalBusinessName || companyInfo.companyName}
-                </div>
-                {companyInfo.operationalNameDba && (
-                  <div>DBA: {companyInfo.operationalNameDba}</div>
-                )}
-                {companyInfo.companyAddress && (
-                  <div style={{ whiteSpace: 'pre-line', marginTop: '4px' }}>{companyInfo.companyAddress}</div>
-                )}
-                <div style={{ marginTop: '8px' }}>
-                  {companyInfo.email && <div>Email: {companyInfo.email}</div>}
-                  {companyInfo.phone && <div>Phone: {companyInfo.phone}</div>}
-                  {companyInfo.bnNumber && <div>CRA business number (BN): {companyInfo.bnNumber}</div>}
-                  {companyInfo.gstNumber && <div>HST/GST registration no.: {companyInfo.gstNumber}</div>}
-                </div>
-              </div>
-            )}
-
-            {signature && (
-              <div className="signature-section-footer" style={{ margin: '28px 32px 0' }}>
                 <div className="signature-label">Authorized signature</div>
                 <img src={signature} alt="" className="signature-image" />
                 <div className="signature-printed-lines" style={{ marginTop: '14px', fontSize: '13px', color: '#212529', lineHeight: 1.5 }}>
                   <div style={{ fontWeight: '600' }}>{getInvoiceSignatoryPrintedName(companyInfo, currentUser)}</div>
                   <div style={{ color: '#495057' }}>{(signatoryTitle && String(signatoryTitle).trim()) || getInvoiceSignatoryTitle(companyInfo)}</div>
-                  <div style={{ color: '#495057' }}>Date: {formatInvoiceDateLong(invoice.date)}</div>
+                  <div style={{ color: '#495057' }}>
+                    Date signed: {formatInvoiceDateLong(signatorySignedAt || invoice.date)}
+                  </div>
                 </div>
               </div>
             )}
           </div>
 
-          {savedInvoiceId && (
-            <div className="action-buttons">
-              <button
-                type="button"
-                onClick={() => navigate('/dashboard')}
-                className="secondary-button flex-button"
-                style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}
+          <div
+            className="action-buttons preview-actions-bar"
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px',
+              maxWidth: '720px',
+              margin: '28px auto 0',
+              padding: '0 16px',
+            }}
+          >
+            {savedInvoiceId ? (
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '12px',
+                  justifyContent: 'center',
+                  alignItems: 'stretch',
+                }}
               >
-                <Home size={20} />
-                Return to Dashboard
-              </button>
-              <button type="button" onClick={() => setStep('form')} className="secondary-button flex-button">
-                Edit Invoice
-              </button>
-              <button type="button" onClick={downloadPDF} className="primary-button flex-button">
-                <Download size={20} />
-                Download PDF
-              </button>
-              {deliveryMethod === 'email' && (
+                <button
+                  type="button"
+                  onClick={() => navigate('/dashboard')}
+                  className="secondary-button flex-button"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}
+                >
+                  <Home size={20} aria-hidden />
+                  Return to Dashboard
+                </button>
+                <button
+                  type="button"
+                  onClick={downloadPDF}
+                  className="primary-button flex-button"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}
+                >
+                  <Download size={20} aria-hidden />
+                  Download PDF
+                </button>
                 <button
                   type="button"
                   onClick={() => sendInvoice(savedInvoiceId, {
@@ -1952,13 +2043,48 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
                   })}
                   disabled={sendingEmail}
                   className="success-button flex-button"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}
                 >
-                  <Send size={20} />
+                  <Send size={20} aria-hidden />
                   {sendingEmail ? 'Sending…' : 'Email again'}
                 </button>
-              )}
-            </div>
-          )}
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '12px',
+                  justifyContent: 'center',
+                  alignItems: 'stretch',
+                }}
+              >
+                <button type="button" onClick={() => setStep('form')} className="secondary-button flex-button">
+                  Edit invoice
+                </button>
+                <button
+                  type="button"
+                  onClick={downloadPDF}
+                  className="primary-button flex-button"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}
+                >
+                  <Download size={20} aria-hidden />
+                  Download PDF
+                </button>
+                {showDeliverOnPreview && (
+                  <button
+                    type="button"
+                    onClick={() => setStep('delivery')}
+                    className="success-button flex-button"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}
+                  >
+                    <FileCheck size={20} aria-hidden />
+                    Deliver
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

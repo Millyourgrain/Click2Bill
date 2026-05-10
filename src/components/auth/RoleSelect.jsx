@@ -107,8 +107,6 @@ function RoleSelect() {
         >
           Sign in
         </a>
-        {' '}
-        · Paying an invoice? Sign in with the email on your invoice.
       </p>
     </div>
   );

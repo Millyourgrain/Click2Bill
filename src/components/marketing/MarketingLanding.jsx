@@ -1162,16 +1162,6 @@ export default function MarketingLanding() {
             </ul>
           </div>
           <div className="ml-footer-col">
-            <h4>Paying an invoice?</h4>
-            <ul>
-              <li>
-                <button type="button" onClick={() => navigate('/login')}>
-                  Customer sign in
-                </button>
-              </li>
-            </ul>
-          </div>
-          <div className="ml-footer-col">
             <h4>Contact us</h4>
             <ul>
               <li className="ml-footer-contact-item">

@@ -14,4 +14,18 @@ export default defineConfig({
       '@utils': path.resolve(__dirname, 'src/utils'),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // React core — cached separately, rarely changes
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          // Firebase SDK — large and stable
+          'vendor-firebase': ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/storage'],
+          // UI icons
+          'vendor-icons': ['lucide-react'],
+        },
+      },
+    },
+  },
 })

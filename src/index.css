@@ -5,42 +5,112 @@
   box-sizing: border-box;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 /* Portal + landing — cream base, deep navy structure, soft gold accent */
 :root {
+  /* Base surfaces */
   --cream: #faf6ef;
   --cream-dark: #f0e8d8;
   --cream-mid: #e5dcc8;
   --cream-deep: #d8cdb6;
+  --white: #ffffff;
+
+  /* Structure */
   --navy: #142a42;
   --navy-800: #18314d;
   --navy-700: #1f3d5c;
   --navy-600: #2a4a6e;
+
+  /* Accent */
   --gold: #c6a14a;
   --gold-light: #d4b56a;
   --gold-dark: #a8863d;
   --gold-soft: rgba(198, 161, 74, 0.18);
+
+  /* Typography */
   --text-primary: #1c2836;
-  --text-muted: #5c6570;
+  --text-muted: #6b7587;
   --text-warm: #4a4338;
-  --white: #ffffff;
-  --success: #3d6b4a;
-  --success-light: #d8ebdd;
+
+  /* Status */
+  --success: #2a6b3a;
+  --success-light: #d4ead9;
+  --success-bg: #eef7f1;
+  --danger: #b91c1c;
+  --danger-light: #fee2e2;
+  --danger-bg: #fff5f5;
+  --warning: #92400e;
+  --warning-light: #fbbf24;
+  --warning-bg: #fffbeb;
+  --info: #1e4d7b;
+  --info-bg: #eff6ff;
+
+  /* Surfaces & shadow */
+  --surface-card: #ffffff;
+  --surface-subtle: #f7f3ec;
   --invoice-navy: #1e3a5f;
   --portal-shadow: 0 8px 28px rgba(20, 42, 66, 0.09);
+  --card-shadow: 0 2px 12px rgba(20, 42, 66, 0.07);
   --gradient-navy: linear-gradient(135deg, var(--navy) 0%, var(--navy-700) 100%);
+
+  /* Border radius scale */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+
+  /* Typography */
+  --font-ui: 'DM Sans', system-ui, -apple-system, sans-serif;
+  --font-display: 'Playfair Display', Georgia, serif;
+  --font-serif: 'Crimson Text', Georgia, serif;
 }
 
 body {
   margin: 0;
-  font-family: 'Crimson Text', Georgia, serif;
+  font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background: var(--cream);
   color: var(--text-primary);
+  font-size: 15px;
+  line-height: 1.55;
 }
 
 code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
+}
+
+/* ─── Global Animations ─────────────────────────────────────────────────── */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Global loading spinner ─────────────────────────────────────────────── */
+.spinner {
+  width: 48px;
+  height: 48px;
+  border: 3px solid var(--cream-mid);
+  border-top-color: var(--gold);
+  border-radius: 50%;
+  animation: spin 0.85s linear infinite;
+}
+
+/* Invoice preview keeps a serif face for print-quality look */
+.invoice-preview,
+.invoice-preview * {
+  font-family: var(--font-serif);
 }
 
 @media print {

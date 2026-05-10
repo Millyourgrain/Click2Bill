@@ -36,6 +36,8 @@ const TRANSACTION_ROLE = {
   CHECKER: 'checker',
 };
 
+const MC_INVITE_ROLES = ['maker', 'checker', 'admin'];
+
 const VERIFICATION_DOCS = [
   { field: 'verifyDocArticlesUrl', label: 'Articles of Incorporation' },
   { field: 'verifyDocGstHstUrl', label: 'GST/HST registration confirmation' },
@@ -169,7 +171,7 @@ function PermissionsTableByModel({ invoiceSystem, userTransactionRole }) {
           </tbody>
         </table>
         <p style={{ fontSize: '13px', color: '#666', marginTop: '12px', marginBottom: 0 }}>
-          After you choose your personal role in section 9, that column is highlighted. In section 10 you invite two people and assign each a sign-up role — exactly one Maker and one Checker.
+          After you choose your personal role in section 9, that column is highlighted. In section 10 you invite two teammates: exactly one must be a <strong>Maker</strong>; at least one must be a <strong>Checker</strong> or <strong>Organization Admin</strong>. Every invite must use a <strong>different work email</strong>. The same person may hold admin duties on one account and checker duties on another by accepting two invitations with two distinct emails.
         </p>
       </div>
     );
@@ -256,24 +258,35 @@ function CompanySetup() {
       const result = await getOwnCompanyDocument();
       if (result.success && result.data) {
         const d = result.data;
-        setFormData((prev) => ({
-          ...prev,
-          ...d,
-          logoPath: d.logoPath || prev.logoPath || '',
-          verifyDocArticlesUrl: d.verifyDocArticlesUrl || d.articlesOfIncorporationUrl || '',
-          governmentPhotoIdUrl: d.governmentPhotoIdUrl || d.governmentIdUrl || prev.governmentPhotoIdUrl || '',
-          proofOfAddressUrl: d.proofOfAddressUrl || prev.proofOfAddressUrl || '',
-          email: currentUser.email || d.email || prev.email,
-        }));
+        setFormData((prev) => {
+          let utr = d.userTransactionRole ?? prev.userTransactionRole;
+          if (d.invoiceSystem === INVOICE_SYSTEM.MC && String(utr).toLowerCase() === 'admin_checker') {
+            utr = TRANSACTION_ROLE.ADMIN;
+          }
+          return {
+            ...prev,
+            ...d,
+            userTransactionRole: utr,
+            logoPath: d.logoPath || prev.logoPath || '',
+            verifyDocArticlesUrl: d.verifyDocArticlesUrl || d.articlesOfIncorporationUrl || '',
+            governmentPhotoIdUrl: d.governmentPhotoIdUrl || d.governmentIdUrl || prev.governmentPhotoIdUrl || '',
+            proofOfAddressUrl: d.proofOfAddressUrl || prev.proofOfAddressUrl || '',
+            email: currentUser.email || d.email || prev.email,
+          };
+        });
         setLogoPreview(d.logoUrl || null);
         setIsEditing(true);
         if (Array.isArray(d.mcInvitees) && d.mcInvitees.length > 0) {
-          const makerRow = d.mcInvitees.find((r) => r.role === 'maker') || d.mcInvitees[0];
-          const checkerRow = d.mcInvitees.find((r) => r.role === 'checker') || d.mcInvitees[1];
-          setMcInvitees([
-            { email: (makerRow?.email || '').trim(), role: 'maker' },
-            { email: (checkerRow?.email || '').trim(), role: 'checker' },
-          ]);
+          const norm = d.mcInvitees.slice(0, 2).map((r) => {
+            let role = String(r.role || '').toLowerCase();
+            if (role === 'admin_checker') role = 'admin';
+            if (!MC_INVITE_ROLES.includes(role)) role = 'maker';
+            return { email: (r.email || '').trim(), role };
+          });
+          while (norm.length < 2) {
+            norm.push({ email: '', role: norm.length === 1 ? 'checker' : 'maker' });
+          }
+          setMcInvitees(norm);
         }
       }
     })();
@@ -339,17 +352,20 @@ function CompanySetup() {
           if (!em) return `Enter the work email for ${label} (point 10).`;
           if (!EMAIL_RE.test(em)) return `Invalid email for ${label} (point 10).`;
           if (em === ownerEmail) return 'Invited emails cannot include your own sign-in email.';
-          if (seen.has(em)) return 'The two invite emails must be different.';
+          if (seen.has(em)) return 'Each invite must use a different email address (point 10).';
           seen.add(em);
-          if (row.role !== 'maker' && row.role !== 'checker') {
-            return 'Each invited teammate must be assigned sign-up role Maker or Checker (point 10).';
+          if (!MC_INVITE_ROLES.includes(row.role)) {
+            return 'Each invited teammate needs a valid sign-up role (point 10).';
           }
         }
         const roles = mcInvitees.map((r) => r.role);
         const makers = roles.filter((x) => x === 'maker').length;
-        const checkers = roles.filter((x) => x === 'checker').length;
-        if (makers !== 1 || checkers !== 1) {
-          return 'Assign exactly one invited Maker and one invited Checker between the two teammates (point 10).';
+        const approvers = roles.filter((x) => x === 'checker' || x === 'admin').length;
+        if (makers !== 1) {
+          return 'Exactly one invited teammate must be a Maker (issuer) (point 10).';
+        }
+        if (approvers < 1) {
+          return 'At least one invited teammate must be a Checker or Organization Admin (point 10).';
         }
       }
       const digitsPhone = formData.phone.replace(/\D/g, '');
@@ -565,7 +581,13 @@ function CompanySetup() {
               const to = row.email.trim();
               const link = `${window.location.origin}/register?email=${encodeURIComponent(to)}&org=${encodeURIComponent(currentUser.uid)}&teamRole=${encodeURIComponent(row.role)}`;
               const roleLabel =
-                row.role === 'maker' ? 'Maker (issuer)' : 'Checker (approver)';
+                row.role === 'maker'
+                  ? 'Maker (issuer)'
+                  : row.role === 'checker'
+                    ? 'Checker (approver)'
+                    : row.role === 'admin'
+                      ? 'Organization Admin'
+                      : row.role;
               const inviteRes = await sendEmail({
                 to,
                 subject: `Join ${companyLabel} — e-invoicing platform`,
@@ -861,7 +883,7 @@ function CompanySetup() {
             {formData.invoiceSystem === INVOICE_SYSTEM.MC && (
               <>
                 <p style={{ fontSize: '14px', color: '#555', marginTop: 0, marginBottom: '12px' }}>
-                  Choose whether <strong>you</strong> will be an Admin, Maker, or Checker (see section 7). In section 10 you invite exactly <strong>two</strong> teammates and assign each a sign-up role (one Maker, one Checker).
+                  Choose whether <strong>you</strong> will be an Admin, Maker, or Checker (see section 7). In section 10 you invite two teammates with <strong>different emails</strong>: one Maker; at least one Checker or Organization Admin.
                 </p>
                 <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', flexDirection: 'column' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
@@ -871,7 +893,7 @@ function CompanySetup() {
                       checked={formData.userTransactionRole === TRANSACTION_ROLE.ADMIN}
                       onChange={() => setFormData((p) => ({ ...p, userTransactionRole: TRANSACTION_ROLE.ADMIN }))}
                     />
-                    Admin (full permissions and user management)
+                    Admin (full permissions, user management, approve and send)
                   </label>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
                     <input
@@ -919,9 +941,9 @@ function CompanySetup() {
           </Section>
 
           {formData.invoiceSystem === INVOICE_SYSTEM.MC && (
-            <Section num={10} title="Invite two teammates — one Maker, one Checker">
+            <Section num={10} title="Invite two teammates (Maker + approver)">
               <p style={{ fontSize: '14px', color: '#555', marginTop: 0, marginBottom: '16px', lineHeight: 1.5 }}>
-                Enter a work email for each person and choose their <strong>sign-up role</strong> (Maker or Checker). You must assign exactly one Maker and one Checker between the two invites. Each person receives a sign-up link for the role you set.
+                Enter a <strong>different work email</strong> for each teammate and choose their <strong>sign-up role</strong>. You must have exactly one <strong>Maker</strong> and at least one <strong>Checker</strong> or <strong>Organization Admin</strong>. The same natural person may be both admin and checker only by using two distinct emails and accepting both invitations. Each invite receives a sign-up link by email.
               </p>
               {mcInvitees.map((row, index) => (
                 <div
@@ -946,6 +968,7 @@ function CompanySetup() {
                     >
                       <option value="maker">Maker (issuer)</option>
                       <option value="checker">Checker (approver)</option>
+                      <option value="admin">Organization Admin</option>
                     </select>
                   </div>
                   <label style={labelStyle}>Work email *</label>
@@ -1074,7 +1097,7 @@ function CompanySetup() {
               <p style={{ fontSize: '14px', color: '#888', margin: 0 }}>
                 {!formData.invoiceSystem
                   ? 'Select an invoicing model in section 7 first.'
-                  : 'Select your role (Admin, Maker, or Checker) in section 9.'}
+                  : 'Select your role in section 9.'}
               </p>
             )}
           </Section>

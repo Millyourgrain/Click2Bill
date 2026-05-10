@@ -1197,6 +1197,22 @@
 .ml-fi-teal {
   background: rgba(56, 134, 151, 0.1);
 }
+.ml-fi-gold {
+  background: rgba(198, 161, 74, 0.15);
+}
+
+/* Accent card — Xero/QBO feature highlight */
+.ml-feat-card--accent {
+  border-color: var(--gold-light);
+  background: linear-gradient(135deg, #fff 70%, rgba(198, 161, 74, 0.06));
+}
+.ml-feat-card--accent::after {
+  background: var(--gold-dark);
+  transform: scaleX(1);
+}
+.ml-feat-card--accent:hover {
+  box-shadow: 0 16px 48px rgba(168, 134, 61, 0.15);
+}
 
 .ml-feat-title {
   font-size: 1.05rem;
@@ -1357,6 +1373,47 @@
   color: var(--gold);
 }
 
+/* ── About Us section ──────────────────────────────────────────────────── */
+.ml-about-section {
+  padding: 100px 60px;
+  background: var(--cream-dark);
+  border-top: 1px solid var(--cream-mid);
+  border-bottom: 1px solid var(--cream-mid);
+  text-align: center;
+}
+
+.ml-about-inner {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.ml-about-body {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.ml-about-body p {
+  font-size: 1.05rem;
+  line-height: 1.8;
+  color: var(--text-warm);
+}
+
+.ml-about-body strong {
+  color: var(--navy);
+  font-weight: 700;
+}
+
+.ml-about-tagline {
+  text-align: center;
+  font-size: 1.15rem !important;
+  color: var(--gold-dark) !important;
+  font-style: italic;
+  margin-top: 8px !important;
+}
+
+/* ── Footer ────────────────────────────────────────────────────────────── */
 .ml-footer {
   background: var(--navy);
   color: var(--cream);
@@ -1365,9 +1422,34 @@
 
 .ml-footer-grid {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr;
-  gap: 60px;
+  grid-template-columns: 2fr 1fr 1fr 1.4fr;
+  gap: 48px;
   margin-bottom: 60px;
+}
+
+.ml-footer-contact-item {
+  font-size: 0.87rem;
+  color: rgba(250, 246, 239, 0.55);
+  line-height: 1.65;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.ml-footer-contact-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.ml-footer-email {
+  color: var(--gold-light);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.ml-footer-email:hover {
+  color: var(--cream);
 }
 
 .ml-footer-brand .ml-logo {
@@ -1495,8 +1577,14 @@
 
   .ml-features-sec,
   .ml-builder-section,
-  .ml-how-section {
+  .ml-how-section,
+  .ml-about-section {
     padding: 70px 24px;
+  }
+
+  .ml-footer-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 36px;
   }
 
   .ml-features-grid {

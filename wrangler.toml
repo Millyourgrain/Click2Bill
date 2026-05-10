@@ -67,5 +67,18 @@ not_found_handling = "single-page-application"
 [vars]
 FIREBASE_API_KEY = "PASTE_YOUR_FIREBASE_WEB_API_KEY_HERE"
 
-# Optional: override default "Click2Bill <onboarding@resend.dev>" in worker.js
-# FROM_EMAIL = "Click2Bill <billing@your-verified-domain.com>"
+# ── Email sender identity ───────────────────────────────────────────────────
+# FROM_EMAIL  : The visible "From" address on every outgoing email.
+#               Domain (click2bill.ca) MUST be verified in Resend before use.
+#               Uncomment and set after Resend domain verification is complete.
+# FROM_EMAIL = "Click2Bill <invoices@click2bill.ca>"
+#
+# REPLY_TO_EMAIL : Where customer replies land.
+#                  Set up click2bill.ca email forwarding so support@click2bill.ca
+#                  forwards to click2Bill.ca@gmail.com (your real inbox).
+#                  Uncomment after forwarding is confirmed working.
+# REPLY_TO_EMAIL = "Click2Bill Support <support@click2bill.ca>"
+#
+# Set both as plain Variables (not Secrets) in:
+#   Cloudflare Dashboard → Workers & Pages → click2bill → Settings → Variables
+# Then redeploy: npm run build && npx wrangler deploy

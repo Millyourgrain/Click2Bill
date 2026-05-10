@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Users, FileText } from 'lucide-react';
 import { getCustomers } from '../../services/customerService';
 import { getInvoices } from '../../services/invoiceService';
+import { useAuth } from '../../contexts/AuthContext';
 
 function invoiceMatchesCustomer(inv, customer) {
   if (!customer?.id) return false;
@@ -15,6 +16,7 @@ function invoiceMatchesCustomer(inv, customer) {
 
 function DashboardCustomersTab() {
   const navigate = useNavigate();
+  const { canCreateInvoice } = useAuth();
   const [customers, setCustomers] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -125,8 +127,19 @@ function DashboardCustomersTab() {
                   <td style={{ padding: '14px 10px' }}>
                     <button
                       type="button"
-                      onClick={() => navigate(`/invoice?customerId=${encodeURIComponent(c.id)}`)}
-                      style={{ padding: '6px 12px', background: '#f3f4f6', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '500', color: '#4f46e5' }}
+                      onClick={() => (canCreateInvoice ? navigate(`/invoice?customerId=${encodeURIComponent(c.id)}`) : null)}
+                      disabled={!canCreateInvoice}
+                      title={!canCreateInvoice ? 'Your role cannot create invoices.' : undefined}
+                      style={{
+                        padding: '6px 12px',
+                        background: '#f3f4f6',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: canCreateInvoice ? 'pointer' : 'not-allowed',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        color: canCreateInvoice ? '#4f46e5' : '#9ca3af',
+                      }}
                     >
                       Invoice
                     </button>
@@ -138,10 +151,9 @@ function DashboardCustomersTab() {
         </div>
       )}
 
-      <p style={{ fontSize: '13px', color: '#9ca3af', marginTop: '20px', marginBottom: 0 }}>
-        Open the <button type="button" onClick={() => navigate('/customers')} style={{ background: 'none', border: 'none', color: 'var(--gold)', cursor: 'pointer', fontWeight: '600', padding: 0 }}>full customer list</button> to edit profiles, schedule visits, or send sign-up links.
+      <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '20px', marginBottom: 0 }}>
+        Open the <button type="button" onClick={() => navigate('/customers')} style={{ background: 'none', border: 'none', color: 'var(--gold)', cursor: 'pointer', fontWeight: '600', padding: 0 }}>full customer list</button> to edit or remove customer profiles.
       </p>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }

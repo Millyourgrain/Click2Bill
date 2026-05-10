@@ -28,17 +28,20 @@ function Login() {
     setError('');
     setLoading(true);
 
-    const result = await loginUser(formData.email, formData.password);
+    try {
+      const result = await loginUser(formData.email, formData.password);
 
-    if (result.success) {
-      const role = result.user?.role || 'worker';
-      if (from && typeof from === 'string' && from !== '/login') {
-        navigate(from, { replace: true });
+      if (result.success) {
+        const role = result.user?.role || 'worker';
+        if (from && typeof from === 'string' && from !== '/login') {
+          navigate(from, { replace: true });
+        } else {
+          navigate(role === 'customer' ? '/customer-dashboard' : '/dashboard');
+        }
       } else {
-        navigate(role === 'customer' ? '/customer-dashboard' : '/dashboard');
+        setError(result.error);
       }
-    } else {
-      setError(result.error);
+    } finally {
       setLoading(false);
     }
   };

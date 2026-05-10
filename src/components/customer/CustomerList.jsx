@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { UserPlus, User, Pencil, Calendar, Trash2, Mail, LayoutDashboard } from 'lucide-react';
+import { UserPlus, User, Pencil, Trash2, LayoutDashboard } from 'lucide-react';
 import { getCustomers, deleteCustomer } from '../../services/customerService';
-import { sendEmail } from '../../services/emailService';
 
 function CustomerList() {
   const navigate = useNavigate();
@@ -20,25 +19,6 @@ function CustomerList() {
     if (result.success) setCustomers(result.data || []);
     else setError(result.error);
     setLoading(false);
-  };
-
-  const [sendingTo, setSendingTo] = useState(null);
-
-  const sendSignupLink = async (c) => {
-    const email = c.payorEmail || c.customerEmail;
-    if (!email) {
-      alert('No email on file for this customer. Add payor/customer email first.');
-      return;
-    }
-    setSendingTo(email);
-    const base = window.location.origin;
-    const link = `${base}/register-customer?email=${encodeURIComponent(email)}`;
-    const subject = 'Sign up for the e-invoicing platform';
-    const text = `You have been invited to sign up as a Customer/Payor on the e-invoicing platform.\n\nSign up here: ${link}\n\nAfter signing up you can view and accept invoices, and manage your profile.`;
-    const res = await sendEmail({ to: email, subject, text });
-    setSendingTo(null);
-    if (res.success) alert('Sign-up link sent successfully!');
-    else alert(res.error || 'Failed to send email.');
   };
 
   const handleDelete = async (id, name) => {
@@ -103,21 +83,11 @@ function CustomerList() {
                   {c.customerEmail && <div style={{ fontSize: '13px', color: '#888' }}>{c.customerEmail}</div>}
                 </div>
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  <button
-                    onClick={() => sendSignupLink(c)}
-                    disabled={sendingTo === (c.payorEmail || c.customerEmail)}
-                    style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', background: 'var(--cream-dark)', color: 'var(--navy)', border: '1px solid var(--gold)', borderRadius: '6px', cursor: sendingTo ? 'wait' : 'pointer', fontSize: '14px', opacity: sendingTo ? 0.7 : 1 }}
-                  >
-                    <Mail size={16} /> {sendingTo === (c.payorEmail || c.customerEmail) ? 'Sending...' : 'Send sign-up link'}
+                  <button onClick={() => navigate(`/customers/${c.id}`)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', background: 'var(--cream-dark)', color: 'var(--navy)', border: '1px solid var(--cream-mid)', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>
+                    <Pencil size={15} /> Edit
                   </button>
-                  <button onClick={() => navigate(`/schedule?customerId=${c.id}`)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', background: '#e3f2fd', color: '#1976d2', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>
-                    <Calendar size={16} /> Schedule
-                  </button>
-                  <button onClick={() => navigate(`/customers/${c.id}`)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', background: '#f5f5f5', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>
-                    <Pencil size={16} /> Edit
-                  </button>
-                  <button onClick={() => handleDelete(c.id, c.customerName)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', background: '#ffebee', color: '#c62828', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>
-                    <Trash2 size={16} />
+                  <button onClick={() => handleDelete(c.id, c.customerName)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 12px', background: 'var(--danger-light)', color: 'var(--danger)', border: '1px solid rgba(185,28,28,0.15)', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>
+                    <Trash2 size={15} />
                   </button>
                 </div>
               </div>

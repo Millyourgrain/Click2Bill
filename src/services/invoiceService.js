@@ -20,6 +20,8 @@ import {
 } from './workerOrgContext';
 import { totalsByCurrency } from '../utils/invoiceCurrency';
 import { deleteTravelRecordsForInvoice } from './travelRecordService';
+import { notifyInvoiceOrgMembers } from './notificationService';
+import { sendEmail } from './emailService';
 
 /**
  * Save a new invoice (scoped to org billing userId = company owner uid)
@@ -34,6 +36,12 @@ export const saveInvoice = async (invoiceData) => {
 
     const ctx = await getWorkerOrgContext();
     if (!ctx) return { success: false, error: 'User not authenticated' };
+
+    const companySnapMc = await getDoc(doc(db, 'companies', ctx.billingUserId));
+    const orgInvoiceSystemNew = companySnapMc.exists() ? (companySnapMc.data().invoiceSystem || '') : '';
+    if (orgInvoiceSystemNew === 'maker_checker' && !canActAsInvoiceMaker(ctx)) {
+      return { success: false, error: 'You do not have permission to create invoices.' };
+    }
 
     const invoicesRef = collection(db, 'invoices');
 
@@ -330,6 +338,25 @@ export const updateInvoice = async (invoiceId, updates) => {
       return { success: false, error: 'Unauthorized access' };
     }
 
+    const invData = invoiceDoc.data();
+    const companySnap = await getDoc(doc(db, 'companies', ctx.billingUserId));
+    const orgInvoiceSystem = companySnap.exists() ? (companySnap.data().invoiceSystem || '') : '';
+    if (orgInvoiceSystem === 'maker_checker' && !canActAsInvoiceMaker(ctx)) {
+      const reserved = new Set(['lastUpdatedByUid', 'updatedAt']);
+      const updateKeys = Object.keys(updates).filter((k) => !reserved.has(k));
+      const checkerMeta = new Set(['portalToken', 'reminderEnabled', 'reminderFrequency']);
+      const pendingSignatory = new Set(['signature', 'signatoryTitle', 'signatoryPrintedName', 'signatorySignedAt']);
+      const isPendingChecker = invData.approvalState === 'pending_checker';
+      const forbidden = updateKeys.filter((k) => {
+        if (checkerMeta.has(k)) return false;
+        if (isPendingChecker && canActAsInvoiceChecker(ctx) && pendingSignatory.has(k)) return false;
+        return true;
+      });
+      if (forbidden.length > 0) {
+        return { success: false, error: 'You do not have permission to edit this invoice.' };
+      }
+    }
+
     await updateDoc(invoiceRef, {
       ...updates,
       lastUpdatedByUid: ctx.uid,
@@ -371,7 +398,7 @@ export async function canDeleteInvoiceForOrg() {
 
   if (system === 'maker_checker') {
     const isBillingOwner = ctx.uid === ctx.billingUserId;
-    const isMcAdminRole = teamRole === 'admin';
+    const isMcAdminRole = teamRole === 'admin' || teamRole === 'admin_checker';
     if (persona === 'org_admin' && (isMcAdminRole || isBillingOwner)) {
       return { allowed: true };
     }
@@ -621,14 +648,16 @@ export const getAccountReceivables = async () => {
     const receivables = combined.map((inv) => {
       const due = inv.dueDate ? new Date(inv.dueDate) : now;
       const daysOverdue = Math.floor((now - due) / (1000 * 60 * 60 * 24));
+      // Positive daysOverdue = past due; negative = still within due date (Current)
       let ageing = 'current';
-      if (daysOverdue > 90) ageing = '90+';
-      else if (daysOverdue > 60) ageing = '60-90';
-      else if (daysOverdue > 30) ageing = '30-60';
-      else if (daysOverdue >= 0) ageing = '0-30';
+      if (daysOverdue > 90)       ageing = '90+';
+      else if (daysOverdue > 60)  ageing = '61-90';
+      else if (daysOverdue > 30)  ageing = '31-60';
+      else if (daysOverdue > 0)   ageing = '1-30';
+      // daysOverdue <= 0 → 'current' (within or exactly on due date)
       return { ...inv, daysOverdue, ageing };
     });
-    const byAgeing = { '0-30': [], '30-60': [], '60-90': [], '90+': [], current: [] };
+    const byAgeing = { current: [], '1-30': [], '31-60': [], '61-90': [], '90+': [] };
     receivables.forEach((r) => {
       if (byAgeing[r.ageing]) byAgeing[r.ageing].push(r);
     });
@@ -759,16 +788,137 @@ export const submitInvoiceForApproval = async (invoiceId) => {
   const ref = doc(db, 'invoices', invoiceId);
   const snap = await getDoc(ref);
   if (!snap.exists()) return { success: false, error: 'Invoice not found' };
+  const invData = snap.data();
   const ctx = await getWorkerOrgContext();
-  if (!ctx || snap.data().userId !== ctx.billingUserId) return { success: false, error: 'Unauthorized' };
+  if (!ctx || invData.userId !== ctx.billingUserId) return { success: false, error: 'Unauthorized' };
   if (!canActAsInvoiceMaker(ctx)) return { success: false, error: 'Only a Maker or Admin can submit for approval.' };
+  const companySnap = await getDoc(doc(db, 'companies', ctx.billingUserId));
+  const orgInvoiceSystem = companySnap.exists() ? (companySnap.data().invoiceSystem || '') : '';
+  if (orgInvoiceSystem !== 'maker_checker') {
+    return { success: false, error: 'Submit for approval is only used in maker–checker mode.' };
+  }
+  if (invData.status !== 'draft') {
+    return { success: false, error: 'Only draft invoices can be submitted for approval.' };
+  }
   await updateDoc(ref, {
     approvalState: 'pending_checker',
     submittedForApprovalAt: new Date().toISOString(),
+    checkerRecommendation: null,
+    returnedToMakerAt: null,
     lastUpdatedByUid: ctx.uid,
     updatedAt: new Date().toISOString(),
   });
   return { success: true };
+};
+
+/**
+ * Checker / org admin: send draft back to maker with recommendations (maker–checker only).
+ */
+export const returnInvoiceToMakerWithRecommendation = async (invoiceId, recommendation) => {
+  const text = typeof recommendation === 'string' ? recommendation.trim() : '';
+  if (!text) {
+    return { success: false, error: 'Please enter your recommendations for the maker.' };
+  }
+  if (text.length > 8000) {
+    return { success: false, error: 'Recommendation is too long (max 8000 characters).' };
+  }
+  try {
+    const ref = doc(db, 'invoices', invoiceId);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return { success: false, error: 'Invoice not found' };
+    const data = snap.data();
+    const ctx = await getWorkerOrgContext();
+    if (!ctx || data.userId !== ctx.billingUserId) return { success: false, error: 'Unauthorized' };
+    if (!canActAsInvoiceChecker(ctx)) {
+      return { success: false, error: 'Only a Checker or Organization admin may return a draft to the maker.' };
+    }
+    if (data.approvalState !== 'pending_checker') {
+      return { success: false, error: 'This invoice is not waiting for checker approval.' };
+    }
+    if (data.status !== 'draft') {
+      return { success: false, error: 'Only draft invoices can be returned to the maker.' };
+    }
+    const companySnap = await getDoc(doc(db, 'companies', ctx.billingUserId));
+    const orgInvoiceSystem = companySnap.exists() ? (companySnap.data().invoiceSystem || '') : '';
+    if (orgInvoiceSystem !== 'maker_checker') {
+      return { success: false, error: 'Return-to-maker is only used in maker–checker mode.' };
+    }
+    const now = new Date().toISOString();
+    await updateDoc(ref, {
+      approvalState: 'returned_to_maker',
+      checkerRecommendation: text,
+      returnedToMakerAt: now,
+      lastUpdatedByUid: ctx.uid,
+      updatedAt: now,
+    });
+    const row = { id: invoiceId, ...data, approvalState: 'returned_to_maker', checkerRecommendation: text };
+    await notifyInvoiceOrgMembers(row, {
+      type: 'invoice_returned_to_maker',
+      title: 'Draft returned for changes',
+      body: `Checker requested updates on invoice ${data.invoiceNumber || ''}.`,
+      link: `/invoice?editDraftId=${encodeURIComponent(invoiceId)}`,
+      metadata: { invoiceId },
+    });
+
+    // Email the maker directly so they are notified even when offline
+    try {
+      const makerUid = data.createdByUid || null;
+      let makerEmail = null;
+      if (makerUid) {
+        const makerUserSnap = await getDoc(doc(db, 'users', makerUid));
+        if (makerUserSnap.exists()) makerEmail = makerUserSnap.data().email || null;
+      }
+      if (!makerEmail && companySnap.exists()) {
+        const cd = companySnap.data();
+        makerEmail = cd.mcMaker1Email || cd.mcMaker2Email || null;
+      }
+      if (makerEmail) {
+        const orgName = companySnap.exists()
+          ? (companySnap.data().companyName || companySnap.data().legalBusinessName || 'Your organisation')
+          : 'Your organisation';
+        const invoiceLabel = data.invoiceNumber ? `Invoice ${data.invoiceNumber}` : 'a draft invoice';
+        const subject = `Action required: changes requested on ${invoiceLabel}`;
+        const reviseUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/invoice?editDraftId=${encodeURIComponent(invoiceId)}`;
+        await sendEmail({
+          to: makerEmail,
+          subject,
+          text: [
+            `Hello,`,
+            ``,
+            `The checker at ${orgName} has reviewed ${invoiceLabel} and is requesting the following changes before it can be approved:`,
+            ``,
+            `"${text}"`,
+            ``,
+            `Please log in and revise the draft, then resubmit it for approval.`,
+            `Revise draft: ${reviseUrl}`,
+            ``,
+            `Thank you,`,
+            `${orgName}`,
+          ].join('\n'),
+          html: `
+            <div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#1a2a3a">
+              <p>Hello,</p>
+              <p>The checker at <strong>${orgName}</strong> has reviewed <strong>${invoiceLabel}</strong> and is requesting the following changes before it can be approved:</p>
+              <blockquote style="border-left:4px solid #ca8a04;margin:16px 0;padding:12px 16px;background:#fffbeb;color:#92400e;border-radius:4px">
+                ${text.replace(/\n/g, '<br>')}
+              </blockquote>
+              <p>Please log in and revise the draft, then resubmit it for approval.</p>
+              <p><a href="${reviseUrl}" style="display:inline-block;padding:10px 20px;background:#142a42;color:#f5e6b8;border-radius:6px;text-decoration:none;font-weight:600">Revise &amp; resubmit draft</a></p>
+              <p style="color:#64748b;font-size:13px">You are receiving this because you are a maker at ${orgName}.</p>
+            </div>
+          `,
+        });
+      }
+    } catch (emailErr) {
+      // Email failure is non-fatal — notification was already sent in-app
+      console.warn('returnInvoiceToMakerWithRecommendation: email to maker failed', emailErr);
+    }
+
+    return { success: true };
+  } catch (e) {
+    console.error('returnInvoiceToMakerWithRecommendation', e);
+    return { success: false, error: 'Could not return invoice to maker' };
+  }
 };
 
 /** Checker: approve (before send) */
@@ -776,8 +926,13 @@ export const approveInvoiceAsChecker = async (invoiceId) => {
   const ref = doc(db, 'invoices', invoiceId);
   const snap = await getDoc(ref);
   if (!snap.exists()) return { success: false, error: 'Invoice not found' };
+  const data = snap.data();
   const ctx = await getWorkerOrgContext();
-  if (!ctx || snap.data().userId !== ctx.billingUserId) return { success: false, error: 'Unauthorized' };
+  if (!ctx || data.userId !== ctx.billingUserId) return { success: false, error: 'Unauthorized' };
+  if (!canActAsInvoiceChecker(ctx)) return { success: false, error: 'Only a Checker or Admin may approve.' };
+  if (data.approvalState !== 'pending_checker') {
+    return { success: false, error: 'This invoice is not in the pending-approval state.' };
+  }
   await updateDoc(ref, {
     approvalState: 'approved',
     checkerApprovedAt: new Date().toISOString(),
@@ -795,10 +950,13 @@ export const issueInvoiceToCustomer = async (invoiceId) => {
   const data = snap.data();
   const ctx = await getWorkerOrgContext();
   if (!ctx || data.userId !== ctx.billingUserId) return { success: false, error: 'Unauthorized' };
-  if (!canActAsInvoiceChecker(ctx)) return { success: false, error: 'Only a Checker or Admin can issue to the customer.' };
+  if (!canActAsInvoiceChecker(ctx)) return { success: false, error: 'Only a Checker or Organization admin may issue to the customer.' };
   const a = data.approvalState;
   if (a === 'pending_checker') {
     return { success: false, error: 'Invoice is waiting for checker approval.' };
+  }
+  if (a === 'returned_to_maker') {
+    return { success: false, error: 'Invoice was returned to the maker for changes. It must be resubmitted first.' };
   }
   const portalToken = data.portalToken || generateInvoicePortalToken();
   await updateDoc(ref, {

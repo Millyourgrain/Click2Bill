@@ -44,11 +44,13 @@ function CustomerDashboard() {
   const [showAddProvider, setShowAddProvider] = useState(false);
   const [showAddAppointment, setShowAddAppointment] = useState(false);
 
-  if (userRole && userRole !== 'customer') return <Navigate to="/dashboard" replace />;
-
+  // All hooks must be declared before any conditional return (Rules of Hooks)
   useEffect(() => {
+    if (userRole && userRole !== 'customer') return;
     load();
-  }, []);
+  }, [userRole]);
+
+  if (userRole && userRole !== 'customer') return <Navigate to="/dashboard" replace />;
 
   const load = async () => {
     setLoading(true);

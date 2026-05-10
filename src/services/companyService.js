@@ -70,7 +70,8 @@ export const saveCompanyInfo = async (companyData) => {
     let userTeamRoleUpdate = '';
     if (companyData.invoiceSystem === 'maker_checker') {
       const r = (companyData.userTransactionRole || '').toLowerCase();
-      if (r === 'maker' || r === 'checker' || r === 'admin') userTeamRoleUpdate = r;
+      if (r === 'admin_checker') userTeamRoleUpdate = 'admin';
+      else if (r === 'maker' || r === 'checker' || r === 'admin') userTeamRoleUpdate = r;
     }
     await updateDoc(doc(db, 'users', user.uid), {
       userTeamRole: userTeamRoleUpdate,

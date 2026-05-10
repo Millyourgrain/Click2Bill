@@ -1,12 +1,18 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 import AutocompleteInput from './AutocompleteInput';
 import VehicleDetails from './VehicleDetails';
 import RouteMap from './RouteMap';
 import { searchPlaces, getRoute } from '../../services/geoapify';
 import { calculateWearTearCost } from '@utils/wearTearCalculator';
+import { addTravelRecord } from '../../services/travelRecordService';
+
 function DistanceDashboard({ onAddToInvoice }) {
   const navigate = useNavigate();
+  const { canCreateInvoice } = useAuth();
+  const [savingRecord, setSavingRecord] = useState(false);
+  const [savedRecord, setSavedRecord] = useState(false);
   const [origin, setOrigin] = useState('');
   const [destination, setDestination] = useState('');
   const [travelDate, setTravelDate] = useState(new Date().toISOString().split('T')[0]);
@@ -257,7 +263,7 @@ function DistanceDashboard({ onAddToInvoice }) {
       rate: totalCost,
       amount: totalCost,
       date: result.travelDate || new Date().toISOString().split('T')[0],
-      isTaxExempt: true,
+      isTaxExempt: false,
       type: 'travel',
       distanceKm: result.distanceKm,
       roundTripKm,
@@ -272,6 +278,40 @@ function DistanceDashboard({ onAddToInvoice }) {
     }
 
     navigate('/invoice');
+  };
+
+  /** Save this trip directly to the travel register (no invoice required). */
+  const handleSaveToRegister = async () => {
+    if (!result || result.distanceKm == null || savingRecord) return;
+    setSavingRecord(true);
+    try {
+      const roundTripKm = result.distanceKm * 2;
+      const orig = typeof result.origin === 'string' ? result.origin : (result.origin?.formatted || 'Origin');
+      const dest = typeof result.destination === 'string' ? result.destination : (result.destination?.formatted || 'Destination');
+      const description = `Travel: ${orig} to ${dest} (Round trip – ${roundTripKm.toFixed(1)} km)`;
+      const res = await addTravelRecord({
+        distanceKm: result.distanceKm,
+        roundTripKm,
+        tripMode: 'roundtrip',
+        travelDate: result.travelDate || new Date().toISOString().split('T')[0],
+        origin: orig,
+        destination: dest,
+        description,
+        totalCost: result.totalCost != null ? Number(result.totalCost) : null,
+        invoiceId: null,
+        invoiceNumber: null,
+      });
+      if (res.success) {
+        setSavedRecord(true);
+        setTimeout(() => setSavedRecord(false), 3500);
+      } else {
+        alert(res.error || 'Could not save to travel register.');
+      }
+    } catch (e) {
+      alert('Failed to save travel record.');
+    } finally {
+      setSavingRecord(false);
+    }
   };
 
   const today = new Date().toISOString().split('T')[0];
@@ -813,29 +853,60 @@ function DistanceDashboard({ onAddToInvoice }) {
             </div>
           </div>
 
+          {/* Primary: Add to invoice */}
           <button
+            type="button"
             onClick={handleAddToInvoice}
+            disabled={!canCreateInvoice}
+            title={!canCreateInvoice ? 'Only makers and admins can add travel to an invoice.' : undefined}
             style={{
               width: '100%',
               padding: '0.75rem',
-              backgroundColor: result.isOverLimit ? '#ffc107' : '#28a745',
-              color: result.isOverLimit ? '#000' : 'white',
+              backgroundColor: !canCreateInvoice ? '#94a3b8' : (result.isOverLimit ? '#ffc107' : 'var(--success)'),
+              color: !canCreateInvoice ? 'white' : (result.isOverLimit ? '#000' : 'white'),
               border: 'none',
-              borderRadius: '4px',
+              borderRadius: '8px',
               fontSize: '1rem',
               fontWeight: '600',
-              cursor: 'pointer',
-              marginBottom: '1.5rem',
+              cursor: !canCreateInvoice ? 'not-allowed' : 'pointer',
+              marginBottom: '10px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: '0.5rem',
             }}
           >
-            <span>✓</span> 
-            {result.isOverLimit 
-              ? `Add to Invoice (Over Limit by $${(result.totalCost - result.reimbursementLimit).toFixed(2)})` 
+            <span>✓</span>
+            {result.isOverLimit
+              ? `Add to Invoice (Over Limit by $${(result.totalCost - result.reimbursementLimit).toFixed(2)})`
               : 'Add to Invoice (Tax Exempt)'}
+          </button>
+
+          {/* Secondary: Save to travel register without creating an invoice */}
+          <button
+            type="button"
+            onClick={handleSaveToRegister}
+            disabled={savingRecord}
+            title="Record this trip in the travel register without creating an invoice"
+            style={{
+              width: '100%',
+              padding: '0.75rem',
+              backgroundColor: savedRecord ? 'var(--success-bg)' : 'var(--white)',
+              color: savedRecord ? 'var(--success)' : 'var(--navy)',
+              border: `1.5px solid ${savedRecord ? 'var(--success)' : 'var(--cream-mid)'}`,
+              borderRadius: '8px',
+              fontSize: '0.95rem',
+              fontWeight: '600',
+              cursor: savingRecord ? 'wait' : 'pointer',
+              marginBottom: '1.5rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '0.5rem',
+              transition: 'all 0.2s',
+            }}
+          >
+            {savingRecord ? '⏳ Saving…' : savedRecord ? '✅ Saved to travel register!' : '📋 Save to travel register (no invoice)'}
           </button>
 
           <RouteMap result={result} />

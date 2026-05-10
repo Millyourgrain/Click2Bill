@@ -7,11 +7,14 @@ function Register() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const orgId = searchParams.get('org')?.trim() || '';
-  const teamRoleParam = searchParams.get('teamRole')?.trim() || '';
+  const rawTeamRole = searchParams.get('teamRole')?.trim() || '';
+  const teamRoleParam = rawTeamRole === 'admin_checker' ? 'admin' : rawTeamRole;
   const inviteEmail = searchParams.get('email')?.trim() || '';
   const isTeamInvite =
     Boolean(orgId) &&
-    (teamRoleParam === 'maker' || teamRoleParam === 'checker' || teamRoleParam === 'admin');
+    (teamRoleParam === 'maker' ||
+      teamRoleParam === 'checker' ||
+      teamRoleParam === 'admin');
 
   const [formData, setFormData] = useState({
     email: '',
@@ -128,7 +131,13 @@ function Register() {
           </h1>
           <p style={{ color: '#666', fontSize: '15px' }}>
             {isTeamInvite
-              ? `You’re joining as ${teamRoleParam === 'maker' ? 'a Maker (issuer)' : teamRoleParam === 'checker' ? 'a Checker (approver)' : 'an Organization Admin'}. Set a password for your invited email, then you’ll go to the dashboard.`
+              ? `You’re joining as ${
+                  teamRoleParam === 'maker'
+                    ? 'a Maker (issuer)'
+                    : teamRoleParam === 'checker'
+                      ? 'a Checker (approver)'
+                      : 'an Organization Admin'
+                }. Set a password for your invited email, then you’ll go to the dashboard.`
               : 'Use your work email and a secure password. You’ll add company details next.'}
           </p>
         </div>

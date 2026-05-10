@@ -13,6 +13,7 @@
 #
 # Worker var FIREBASE_API_KEY must match VITE_FIREBASE_API_KEY — we pass it on deploy below.
 # RESEND_API_KEY stays a Worker secret (once): npx wrangler secret put RESEND_API_KEY
+# Optional: set FROM_EMAIL in the Worker’s Cloudflare dashboard (verified domain in Resend); not passed by this workflow.
 
 name: Deploy to Cloudflare
 

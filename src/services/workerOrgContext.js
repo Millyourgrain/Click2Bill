@@ -38,27 +38,41 @@ export async function getWorkerOrgContext() {
  */
 export function getWorkerDashboardPersona(ctx) {
   if (!ctx) return 'org_admin';
+  const raw = (ctx.userTeamRole || '').toLowerCase();
+  const role = raw === 'admin_checker' ? 'admin' : raw;
   if (ctx.organizationOwnerId) {
-    if (ctx.userTeamRole === 'admin') return 'org_admin';
-    if (ctx.userTeamRole === 'checker') return 'checker';
-    if (ctx.userTeamRole === 'maker') return 'maker';
+    if (role === 'admin') return 'org_admin';
+    if (role === 'checker') return 'checker';
+    if (role === 'maker') return 'maker';
     return 'maker';
   }
   if (!ctx.userTeamRole) return 'org_admin';
-  if (ctx.userTeamRole === 'admin') return 'org_admin';
-  if (ctx.userTeamRole === 'checker') return 'checker';
-  if (ctx.userTeamRole === 'maker') return 'maker';
+  if (role === 'admin') return 'org_admin';
+  if (role === 'checker') return 'checker';
+  if (role === 'maker') return 'maker';
   return 'org_admin';
 }
 
-/** Maker–checker: who may create/edit/submit drafts */
+/** Maker–checker: who may create/edit/submit drafts (checker cannot; org admin can) */
 export function canActAsInvoiceMaker(ctx) {
   const p = getWorkerDashboardPersona(ctx);
-  return p === 'maker' || p === 'org_admin';
+  return p !== 'checker';
 }
 
 /** Maker–checker: who may approve or issue (send) to customer */
 export function canActAsInvoiceChecker(ctx) {
   const p = getWorkerDashboardPersona(ctx);
   return p === 'checker' || p === 'org_admin';
+}
+
+/**
+ * Maker–checker only: after a customer contests, only the billing owner or org admin may revise
+ * and resend (legacy userTeamRole admin_checker still allowed). Pure makers and checkers cannot.
+ * Mirrors Firestore canMcAdminOrBillingOwner.
+ */
+export function canAmendContestedInvoiceMc(ctx) {
+  if (!ctx) return false;
+  if (ctx.uid === ctx.billingUserId) return true;
+  const r = (ctx.userTeamRole || '').toLowerCase();
+  return r === 'admin' || r === 'admin_checker';
 }

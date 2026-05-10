@@ -5,10 +5,11 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getCompanyInfo } from '../../services/companyService';
 import { getCustomer, getCustomers, upsertCustomerFromInvoice, findRecurringCustomerByName } from '../../services/customerService';
 import { getVisit, getVisitHours, getVisitsHoursInRange } from '../../services/visitService';
-import { saveInvoice, updateInvoice, getInvoice, generateInvoicePortalToken } from '../../services/invoiceService';
-import { addTravelRecord, replaceTravelRecordsForInvoice } from '../../services/travelRecordService';
+import { saveInvoice, updateInvoice, getInvoice, generateInvoicePortalToken, submitInvoiceForApproval } from '../../services/invoiceService';
+import { replaceTravelRecordsForInvoice } from '../../services/travelRecordService';
 import { sendEmail } from '../../services/emailService';
 import { formatInvoiceMoney, INVOICE_CURRENCY_OPTIONS, DEFAULT_INVOICE_CURRENCY, isCadCurrency, formatCadSalesTaxLabel } from '../../utils/invoiceCurrency';
+import { defaultDueDateFromInvoiceDate, INVOICE_NET_DAYS_DEFAULT } from '../../utils/invoiceDates';
 import { downloadInvoicePdf, buildInvoiceSummaryHtml } from '../../utils/invoicePdf';
 import InvoiceTravelGeoEstimate from './InvoiceTravelGeoEstimate';
 
@@ -40,6 +41,7 @@ function getInvoiceSignatoryTitle(companyInfo) {
   if (role === 'maker') return 'Maker (issuer)';
   if (role === 'checker') return 'Checker (approver)';
   if (role === 'admin') return 'Administrator';
+  if (role === 'admin_checker') return 'Administrator';
   return 'Authorized representative';
 }
 
@@ -57,7 +59,8 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
   const visitIdParam = searchParams.get('visitId');
   const customerIdParam = searchParams.get('customerId');
   const editInvoiceIdParam = searchParams.get('editInvoiceId');
-  const { currentUser } = useAuth();
+  const editDraftIdParam = searchParams.get('editDraftId');
+  const { currentUser, workerDashboardPersona, canCreateInvoice, canAmendMcContestedInvoice } = useAuth();
 
   const [step, setStep] = useState('form');
   const [headerTemplate, setHeaderTemplate] = useState('professional');
@@ -72,11 +75,16 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
   const [savedInvoiceId, setSavedInvoiceId] = useState(null);
   /** When set, delivery updates this invoice (contested → revised resend) instead of creating a new doc. */
   const [editingInvoiceId, setEditingInvoiceId] = useState(null);
+  /** Maker: existing draft doc id when opened via ?editDraftId= */
+  const [draftEditInvoiceId, setDraftEditInvoiceId] = useState(null);
+  /** Checker returned draft — show recommendation banner (maker–checker). */
+  const [draftCheckerReturnBanner, setDraftCheckerReturnBanner] = useState(null);
 
+  const initialInvoiceDate = new Date().toISOString().split('T')[0];
   const [invoice, setInvoice] = useState({
     invoiceNumber: `INV-${Date.now()}`,
-    date: new Date().toISOString().split('T')[0],
-    dueDate: '',
+    date: initialInvoiceDate,
+    dueDate: defaultDueDateFromInvoiceDate(initialInvoiceDate),
     serviceStartDate: '',
     serviceEndDate: '',
     customerName: '',
@@ -111,8 +119,19 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
   const addedTravelIdsRef = useRef(new Set());
   const signatureRef = useRef(null);
   const hasSavedAfterLoadRef = useRef(false);
+  /** When false, changing invoice date keeps due date in sync (Net 30). Set true after user edits due date or loading a saved invoice. */
+  const dueDateManualRef = useRef(false);
 
   const STORAGE_KEY = 'invoice-form-draft';
+
+  useEffect(() => {
+    if (dueDateManualRef.current) return;
+    const invDate = invoice.date;
+    if (!invDate) return;
+    const nextDue = defaultDueDateFromInvoiceDate(invDate);
+    if (!nextDue) return;
+    setInvoice((prev) => (prev.dueDate === nextDue ? prev : { ...prev, dueDate: nextDue }));
+  }, [invoice.date]);
 
   const saveDraft = () => {
     try {
@@ -140,6 +159,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
       if (!raw) return false;
       const draft = JSON.parse(raw);
       if (draft.invoice) {
+        dueDateManualRef.current = true;
         const inv = draft.invoice;
         if (inv.items && Array.isArray(inv.items)) {
           inv.items = inv.items.map((it) => {
@@ -224,11 +244,11 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
   }, [companyInfo?.logoUrl]);
 
   useEffect(() => {
-    if (loadingCompany || visitIdParam || customerIdParam || editInvoiceIdParam) return;
+    if (loadingCompany || visitIdParam || customerIdParam || editInvoiceIdParam || editDraftIdParam) return;
     const hadPendingTravel = !!sessionStorage.getItem(PENDING_TRAVEL_KEY);
     loadDraft();
     if (hadPendingTravel) setStep('form');
-  }, [loadingCompany, visitIdParam, customerIdParam, editInvoiceIdParam]);
+  }, [loadingCompany, visitIdParam, customerIdParam, editInvoiceIdParam, editDraftIdParam]);
 
   useEffect(() => {
     if (loadingCompany || visitIdParam || customerIdParam) return;
@@ -259,7 +279,10 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
           description: item.description || '',
           totalCost: item.amount ?? item.rate ?? 0,
         };
-        addTravelRecord(rec).catch((e) => console.warn('Travel record save failed:', e));
+        // Do NOT call addTravelRecord here — no invoiceId yet.
+        // replaceTravelRecordsForInvoice (called on save) will write the proper
+        // linked record with invoiceId, preventing duplicates and orphans.
+        void rec;
         onTravelCostConsumed?.();
       } catch (e) {
         console.warn('Could not parse pending travel item:', e);
@@ -301,16 +324,23 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
         navigate('/dashboard', { replace: true });
         return;
       }
+      if (companyInfo?.invoiceSystem === 'maker_checker' && !canAmendMcContestedInvoice) {
+        alert('Only an organization admin or billing owner can amend a contested invoice. Ask an admin to revise and resend.');
+        navigate('/dashboard', { replace: true });
+        return;
+      }
       try {
         sessionStorage.removeItem(STORAGE_KEY);
       } catch (e) { /* ignore */ }
+      dueDateManualRef.current = true;
+      setDraftCheckerReturnBanner(null);
       setEditingInvoiceId(inv.id);
       setSavedInvoiceId(inv.id);
       const cur = inv.currency || DEFAULT_INVOICE_CURRENCY;
       setInvoice({
         invoiceNumber: inv.invoiceNumber,
         date: inv.date || new Date().toISOString().split('T')[0],
-        dueDate: inv.dueDate || '',
+        dueDate: inv.dueDate || defaultDueDateFromInvoiceDate(inv.date || new Date().toISOString().split('T')[0]),
         serviceStartDate: inv.serviceStartDate || '',
         serviceEndDate: inv.serviceEndDate || '',
         customerName: inv.customerName || '',
@@ -345,7 +375,114 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
       setStep('form');
     })();
     return () => { cancelled = true; };
-  }, [editInvoiceIdParam, loadingCompany, navigate]);
+  }, [editInvoiceIdParam, loadingCompany, navigate, companyInfo?.invoiceSystem, canAmendMcContestedInvoice]);
+
+  useEffect(() => {
+    if (!editDraftIdParam || loadingCompany) return;
+    let cancelled = false;
+    (async () => {
+      if (!canCreateInvoice) {
+        navigate('/dashboard', { replace: true });
+        return;
+      }
+      const res = await getInvoice(editDraftIdParam);
+      if (cancelled) return;
+      if (!res.success) {
+        alert(res.error || 'Could not load invoice');
+        navigate('/dashboard', { replace: true });
+        return;
+      }
+      const inv = res.data;
+      if (inv.status !== 'draft' || inv.approvalState === 'pending_checker') {
+        alert('Only drafts that are not waiting for approval can be opened here.');
+        navigate('/dashboard', { replace: true });
+        return;
+      }
+      try {
+        sessionStorage.removeItem(STORAGE_KEY);
+      } catch (e) { /* ignore */ }
+      dueDateManualRef.current = true;
+      setDraftEditInvoiceId(inv.id);
+      setSavedInvoiceId(inv.id);
+      if (inv.approvalState === 'returned_to_maker') {
+        setDraftCheckerReturnBanner({
+          recommendation: inv.checkerRecommendation ? String(inv.checkerRecommendation) : '',
+        });
+      } else {
+        setDraftCheckerReturnBanner(null);
+      }
+      const cur = inv.currency || DEFAULT_INVOICE_CURRENCY;
+      setInvoice({
+        invoiceNumber: inv.invoiceNumber,
+        date: inv.date || new Date().toISOString().split('T')[0],
+        dueDate: inv.dueDate || defaultDueDateFromInvoiceDate(inv.date || new Date().toISOString().split('T')[0]),
+        serviceStartDate: inv.serviceStartDate || '',
+        serviceEndDate: inv.serviceEndDate || '',
+        customerName: inv.customerName || '',
+        customerEmail: inv.customerEmail || '',
+        serviceAddress: inv.serviceAddress || '',
+        payorName: inv.payorName || '',
+        payorEmail: inv.payorEmail || '',
+        items: Array.isArray(inv.items) && inv.items.length
+          ? inv.items.map((it) => ({
+              description: it.description || '',
+              quantity: it.quantity ?? 1,
+              rate: it.rate ?? 0,
+              amount: it.amount ?? (Number(it.quantity || 1) * Number(it.rate || 0)),
+            }))
+          : [{ description: '', quantity: 1, rate: 0, amount: 0 }],
+        travelItems: inv.travelItems || [],
+        currency: cur,
+        notes: inv.notes || '',
+        taxRate: inv.taxRate ?? 13,
+        hoursWorked: inv.hoursWorked ?? null,
+        ratePerHour: inv.ratePerHour ?? null,
+        manualTaxAmount: isCadCurrency(cur) ? 0 : (inv.manualTaxAmount ?? inv.tax ?? 0),
+      });
+      setSignature(null);
+      setSignatorySignedAt(null);
+      setSignatoryTitle(getInvoiceSignatoryTitle(companyInfo));
+      setServicePeriodVisits(inv.servicePeriodVisits || []);
+      setVisitId(inv.visitId || null);
+      setCustomerId(inv.customerId || null);
+      setPayorDifferentFromCustomer(!!inv.isPayorDifferentFromCustomer);
+      if (inv.headerTemplate) setHeaderTemplate(inv.headerTemplate);
+      setStep('form');
+    })();
+    return () => { cancelled = true; };
+  }, [editDraftIdParam, loadingCompany, navigate, canCreateInvoice, companyInfo]);
+
+  useEffect(() => {
+    if (loadingCompany || !companyInfo) return;
+    if (companyInfo.invoiceSystem !== 'maker_checker') return;
+    if (editInvoiceIdParam) return;
+    if (editDraftIdParam) return;
+    if (visitIdParam || customerIdParam) return;
+    if (!canCreateInvoice) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [
+    loadingCompany,
+    companyInfo,
+    editInvoiceIdParam,
+    editDraftIdParam,
+    visitIdParam,
+    customerIdParam,
+    canCreateInvoice,
+    navigate,
+  ]);
+
+  useEffect(() => {
+    if (loadingCompany || !companyInfo) return;
+    const mcMakerOnlySanitize =
+      companyInfo.invoiceSystem === 'maker_checker' &&
+      workerDashboardPersona === 'maker' &&
+      !editInvoiceIdParam;
+    if (!mcMakerOnlySanitize) return;
+    if (step === 'signature' || step === 'preview' || step === 'delivery') {
+      setStep('form');
+    }
+  }, [loadingCompany, companyInfo, workerDashboardPersona, editInvoiceIdParam, step]);
 
   useEffect(() => {
     if (!isRecurringCustomer) return;
@@ -508,7 +645,10 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
       description: travelCostItem.description || '',
       totalCost: travelCostItem.amount ?? travelCostItem.rate ?? 0,
     };
-    addTravelRecord(rec).catch((e) => console.warn('Travel record save failed:', e));
+    // Do NOT call addTravelRecord here — no invoiceId yet.
+    // replaceTravelRecordsForInvoice (called on save) writes the proper
+    // linked record with invoiceId, preventing duplicates and orphans.
+    void rec;
     onTravelCostConsumed?.();
   }, [travelCostItem, loadingCompany, companyInfo, onTravelCostConsumed]);
 
@@ -596,7 +736,8 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
 
   const calculateTax = () => {
     if (isCadCurrency(invoice.currency)) {
-      return calculateSubtotal() * (invoice.taxRate / 100);
+      // Travel expenses are now subject to HST/GST — tax base includes both services and travel
+      return (calculateSubtotal() + calculateTravelTotal()) * (invoice.taxRate / 100);
     }
     return Math.max(0, parseFloat(invoice.manualTaxAmount) || 0);
   };
@@ -752,9 +893,125 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
     }
   };
 
+  const buildDraftPayloadForApproval = () => ({
+    invoiceNumber: invoice.invoiceNumber,
+    date: invoice.date,
+    dueDate: invoice.dueDate,
+    serviceStartDate: invoice.serviceStartDate || null,
+    serviceEndDate: invoice.serviceEndDate || null,
+    visitId: visitId || null,
+    customerId: customerId || null,
+    servicePeriodVisits: servicePeriodVisits.length ? servicePeriodVisits.map((v) => ({ serviceDate: v.serviceDate, checkInTime: v.checkInTime, checkOutTime: v.checkOutTime })) : [],
+    companyName: companyInfo?.companyName || companyInfo?.legalBusinessName || '',
+    legalBusinessName: companyInfo?.legalBusinessName || companyInfo?.companyName || '',
+    operationalNameDba: companyInfo?.operationalNameDba || '',
+    companyAddress: companyInfo?.companyAddress || '',
+    companyLogo: companyInfo?.logoUrl || '',
+    gstNumber: companyInfo?.gstNumber || '',
+    customerName: invoice.customerName,
+    customerEmail: invoice.customerEmail,
+    serviceAddress: invoice.serviceAddress,
+    isPayorDifferentFromCustomer: payorDifferentFromCustomer,
+    payorName: payorDifferentFromCustomer ? (invoice.payorName || '') : '',
+    payorEmail: payorDifferentFromCustomer ? (invoice.payorEmail || '') : invoice.customerEmail,
+    items: invoice.items,
+    travelItems: invoice.travelItems,
+    hoursWorked: invoice.hoursWorked,
+    ratePerHour: invoice.ratePerHour,
+    subtotal: calculateSubtotal(),
+    taxRate: isCadCurrency(invoice.currency) ? invoice.taxRate : 0,
+    tax: calculateTax(),
+    travelTotal: calculateTravelTotal(),
+    total: calculateTotal(),
+    currency: invoice.currency || DEFAULT_INVOICE_CURRENCY,
+    manualTaxAmount: isCadCurrency(invoice.currency) ? null : (parseFloat(invoice.manualTaxAmount) || 0),
+    notes: invoice.notes,
+    signature: '',
+    signatoryTitle: '',
+    signatoryPrintedName: '',
+    signatorySignedAt: null,
+    portalToken: null,
+    issuerPaymentEmail: companyInfo?.email || '',
+    bankTransitNumber: companyInfo?.bankTransitNumber || '',
+    bankInstitutionNumber: companyInfo?.bankInstitutionNumber || '',
+    bankAccountNumber: companyInfo?.bankAccountNumber || '',
+    headerTemplate,
+    status: 'draft',
+    deliveryMethod: null,
+    reminderEnabled: false,
+    reminderFrequency: null,
+    issuedAt: null,
+    approvalState: 'draft',
+  });
+
+  const handleMakerSubmitForApproval = async () => {
+    if (!companyInfo) return;
+    setIsSaving(true);
+    try {
+      const invoiceData = buildDraftPayloadForApproval();
+      let docId = draftEditInvoiceId;
+
+      if (docId) {
+        const upd = await updateInvoice(docId, invoiceData);
+        if (!upd.success) {
+          alert(upd.error || 'Failed to update invoice');
+          return;
+        }
+      } else {
+        const result = await saveInvoice({ ...invoiceData, approvalState: 'draft' });
+        if (!result.success) {
+          alert(result.error || 'Failed to save invoice');
+          return;
+        }
+        docId = result.data.id;
+        setSavedInvoiceId(docId);
+      }
+
+      const upsert = await upsertCustomerFromInvoice({
+        billingCustomerId: customerId,
+        customerName: invoice.customerName,
+        customerEmail: invoice.customerEmail,
+        serviceAddress: invoice.serviceAddress,
+        payorDifferentFromCustomer,
+        payorName: invoice.payorName,
+        payorEmail: invoice.payorEmail,
+        isRecurringCustomer,
+      });
+      if (upsert.success && upsert.data?.id) {
+        if (upsert.data.id !== customerId) setCustomerId(upsert.data.id);
+        await updateInvoice(docId, { customerId: upsert.data.id });
+        getCustomers().then((r) => r.success && setCustomers(r.data || []));
+      } else if (upsert.error && upsert.error !== 'Customer name and email required') {
+        console.warn('Customer upsert:', upsert.error);
+      }
+      await replaceTravelRecordsForInvoice(docId, invoice.invoiceNumber, invoice.travelItems).catch((e) =>
+        console.warn('Travel register sync:', e)
+      );
+
+      const sub = await submitInvoiceForApproval(docId);
+      if (!sub.success) {
+        alert(sub.error || 'Could not submit for approval');
+        return;
+      }
+      try {
+        sessionStorage.removeItem(STORAGE_KEY);
+      } catch (e) { /* ignore */ }
+      navigate('/dashboard');
+    } catch (e) {
+      console.error(e);
+      alert('Something went wrong.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   /** Persist changes to a contested invoice and reset customer review state for resend. */
   const handleUpdateContestInvoice = async (method) => {
     if (!editingInvoiceId) return false;
+    if (companyInfo?.invoiceSystem === 'maker_checker' && !canAmendMcContestedInvoice) {
+      alert('Only an organization admin or billing owner can amend a contested invoice.');
+      return false;
+    }
     setIsSaving(true);
     try {
       const invoiceData = {
@@ -793,6 +1050,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
         signature,
         signatoryTitle: (signatoryTitle && String(signatoryTitle).trim()) || getInvoiceSignatoryTitle(companyInfo),
         signatoryPrintedName: getInvoiceSignatoryPrintedName(companyInfo, currentUser),
+        signatorySignedAt: signatorySignedAt || invoice.date || null,
         portalToken: generateInvoicePortalToken(),
         issuerPaymentEmail: companyInfo?.email || '',
         bankTransitNumber: companyInfo?.bankTransitNumber || '',
@@ -809,6 +1067,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
         reminderEnabled: method ? reminderEnabled : false,
         reminderFrequency: method ? reminderFrequency : null,
         issuedAt: new Date().toISOString(),
+        ...(companyInfo?.invoiceSystem === 'maker_checker' ? { approvalState: 'issued' } : {}),
       };
       const result = await updateInvoice(editingInvoiceId, invoiceData);
       if (!result.success) {
@@ -840,6 +1099,32 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
       return false;
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  /**
+   * Preview screen "Email again": for contested revisions, persist firestore first so the portal link matches the form.
+   * (When savedInvoiceId is set, preview hides "Deliver" — users often use this button; it previously skipped handleUpdateContestInvoice.)
+   */
+  const emailCustomerFromPreview = async () => {
+    const pdfProps = {
+      invoice,
+      companyInfo,
+      subtotal: calculateSubtotal(),
+      tax: calculateTax(),
+      travelTotal: calculateTravelTotal(),
+      total: calculateTotal(),
+    };
+    if (editingInvoiceId) {
+      const id = editingInvoiceId;
+      const ok = await handleUpdateContestInvoice('email');
+      if (!ok) return;
+      setDeliveryMethod('email');
+      await sendInvoice(id, pdfProps);
+      // Contested amendment sent — return to dashboard so invoice history shows updated status
+      navigate('/dashboard', { replace: true });
+    } else {
+      await sendInvoice(savedInvoiceId, pdfProps);
     }
   };
 
@@ -877,9 +1162,11 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
       if (!ok) return;
       if (method === 'email') {
         await sendInvoice(docIdForResend, pdfProps);
-        navigate('/invoice', { replace: true });
+        // Return to dashboard so invoice history shows updated "sent" status, not the old "contested" entry
+        navigate('/dashboard', { replace: true });
         return;
       }
+      // Manual PDF delivery: show preview so the user can download the PDF
       setStep('preview');
       runAfterPreviewPaint(() => {
         downloadInvoicePdf({
@@ -989,15 +1276,27 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
     );
   }
 
+  const isMcMakerOnly =
+    companyInfo?.invoiceSystem === 'maker_checker' &&
+    workerDashboardPersona === 'maker' &&
+    !editInvoiceIdParam;
+
+  const invoiceSteps = isMcMakerOnly
+    ? [
+        { id: 'form', label: 'Form' },
+        { id: 'sendApproval', label: 'Send for approval' },
+      ]
+    : [
+        { id: 'form', label: 'Form' },
+        { id: 'signature', label: 'Signing' },
+        { id: 'preview', label: 'Preview' },
+        { id: 'delivery', label: 'Deliver' },
+      ];
+
   return (
     <div className="main-content">
       <div className="step-indicator">
-        {[
-          { id: 'form', label: 'Form' },
-          { id: 'signature', label: 'Signing' },
-          { id: 'preview', label: 'Preview' },
-          { id: 'delivery', label: 'Deliver' },
-        ].map(({ id: s, label }, idx) => (
+        {invoiceSteps.map(({ id: s, label }, idx) => (
           <div key={s} className="step-item">
             <div className={`step-number ${step === s ? 'active' : ''}`}>
               {idx + 1}
@@ -1012,6 +1311,32 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
       {step === 'form' && (
         <div className="form-container">
           <h2 className="section-title">Invoice Details</h2>
+
+          {draftCheckerReturnBanner && (
+            <div
+              style={{
+                background: '#fff7ed',
+                border: '1px solid #fdba74',
+                borderRadius: '12px',
+                padding: '16px 20px',
+                marginBottom: '24px',
+                maxWidth: '800px',
+              }}
+            >
+              <div style={{ fontWeight: '700', fontSize: '15px', color: '#9a3412', marginBottom: '8px' }}>
+                Checker sent this draft back for changes
+              </div>
+              {draftCheckerReturnBanner.recommendation ? (
+                <p style={{ margin: 0, fontSize: '14px', color: '#431407', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
+                  {draftCheckerReturnBanner.recommendation}
+                </p>
+              ) : (
+                <p style={{ margin: 0, fontSize: '14px', color: '#431407', lineHeight: 1.5 }}>
+                  The checker sent this draft back. Update as needed, then submit for approval again.
+                </p>
+              )}
+            </div>
+          )}
 
           {companyInfo && (
             <div style={{
@@ -1142,11 +1467,17 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
                 />
               </div>
               <div className="form-group">
-                <label className="form-label">Due Date</label>
+                <label className="form-label">Due date</label>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 8px', lineHeight: 1.4 }}>
+                  Default Net {INVOICE_NET_DAYS_DEFAULT} from invoice date. Makers, admins, and authorized signatories can change it anytime.
+                </p>
                 <input
                   type="date"
                   value={invoice.dueDate}
-                  onChange={(e) => setInvoice({ ...invoice, dueDate: e.target.value })}
+                  onChange={(e) => {
+                    dueDateManualRef.current = true;
+                    setInvoice({ ...invoice, dueDate: e.target.value });
+                  }}
                   className="form-input"
                 />
               </div>
@@ -1350,54 +1681,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
             ))}
           </div>
 
-          <div className="form-section">
-            {isCadCurrency(invoice.currency) ? (
-              <div className="form-group">
-                <label className="form-label">Tax rate (%)</label>
-                <input
-                  type="number"
-                  value={invoice.taxRate}
-                  onChange={(e) => setInvoice({ ...invoice, taxRate: parseFloat(e.target.value) || 0 })}
-                  min="0"
-                  max="100"
-                  step="0.01"
-                  className="form-input tax-input"
-                />
-                <p style={{ fontSize: '13px', color: '#666', marginTop: '6px' }}>
-                  Tax is applied to service charge. Travel costs are typically tax-exempt.
-                </p>
-              </div>
-            ) : (
-              <>
-                <div style={{ padding: '14px', background: '#fff8e1', border: '1px solid #ffc107', borderRadius: '8px', marginBottom: '16px', fontSize: '14px', lineHeight: 1.5, color: '#5d4037' }}>
-                  <strong>Export / non-CAD billing:</strong> Assuming goods and services are exported and hence are not subject to Canadian GST/HST. The tax rate is set to <strong>0%</strong>. If you need to collect another jurisdiction&apos;s tax, enter it manually below.
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Tax rate (%)</label>
-                  <input type="number" value={0} readOnly className="form-input tax-input readonly" style={{ background: '#f5f5f5' }} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Manual tax amount ({invoice.currency})</label>
-                  <input
-                    type="number"
-                    value={invoice.manualTaxAmount === '' ? '' : invoice.manualTaxAmount}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setInvoice({
-                        ...invoice,
-                        manualTaxAmount: v === '' ? '' : Math.max(0, parseFloat(v) || 0),
-                      });
-                    }}
-                    min="0"
-                    step="0.01"
-                    className="form-input tax-input"
-                    placeholder="0 — optional"
-                  />
-                </div>
-              </>
-            )}
-          </div>
-
+          {/* ── Travel section (shown before tax so totals flow: services → travel → tax) ── */}
           <div className="form-section">
             <h3 className="subsection-title">Travel (optional)</h3>
             <p style={{ fontSize: '14px', color: '#666', marginBottom: '16px', lineHeight: 1.5 }}>
@@ -1483,7 +1767,6 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
               <div className="items-header">
                 <h3 className="subsection-title">🚗 Travel Costs</h3>
               </div>
-              
               {invoice.travelItems.map((item, index) => (
                 <div key={index} style={{
                   padding: '16px',
@@ -1519,6 +1802,55 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
             </div>
           )}
 
+          {/* ── Tax rate (below travel so form order mirrors the totals summary) ── */}
+          <div className="form-section">
+            {isCadCurrency(invoice.currency) ? (
+              <div className="form-group">
+                <label className="form-label">Tax rate (%)</label>
+                <input
+                  type="number"
+                  value={invoice.taxRate}
+                  onChange={(e) => setInvoice({ ...invoice, taxRate: parseFloat(e.target.value) || 0 })}
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  className="form-input tax-input"
+                />
+                <p style={{ fontSize: '13px', color: '#666', marginTop: '6px' }}>
+                  Tax applies to both service charges and travel costs.
+                </p>
+              </div>
+            ) : (
+              <>
+                <div style={{ padding: '14px', background: '#fff8e1', border: '1px solid #ffc107', borderRadius: '8px', marginBottom: '16px', fontSize: '14px', lineHeight: 1.5, color: '#5d4037' }}>
+                  <strong>Export / non-CAD billing:</strong> Assuming goods and services are exported and hence are not subject to Canadian GST/HST. The tax rate is set to <strong>0%</strong>. If you need to collect another jurisdiction&apos;s tax, enter it manually below.
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Tax rate (%)</label>
+                  <input type="number" value={0} readOnly className="form-input tax-input readonly" style={{ background: '#f5f5f5' }} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Manual tax amount ({invoice.currency})</label>
+                  <input
+                    type="number"
+                    value={invoice.manualTaxAmount === '' ? '' : invoice.manualTaxAmount}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setInvoice({
+                        ...invoice,
+                        manualTaxAmount: v === '' ? '' : Math.max(0, parseFloat(v) || 0),
+                      });
+                    }}
+                    min="0"
+                    step="0.01"
+                    className="form-input tax-input"
+                    placeholder="0 — optional"
+                  />
+                </div>
+              </>
+            )}
+          </div>
+
           <div className="form-section">
             <div className="form-group">
               <label className="form-label">Notes / Terms</label>
@@ -1534,25 +1866,19 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
 
           <div className="summary-box">
             <div className="summary-row">
-              <span>Service charge (before tax):</span>
+              <span>Services:</span>
               <span className="summary-value">{formatInvoiceMoney(calculateServiceCharge(), invoice.currency)}</span>
             </div>
-            <div className="summary-row">
-              <span>{isCadCurrency(invoice.currency) ? `${formatCadSalesTaxLabel(invoice.taxRate)}:` : 'Tax (manual):'}</span>
-              <span className="summary-value">{formatInvoiceMoney(calculateTax(), invoice.currency)}</span>
-            </div>
             {invoice.travelItems.length > 0 && (
-              <div className="summary-row" style={{ 
-                color: '#2e7d32',
-                backgroundColor: '#e8f5e9',
-                padding: '8px',
-                borderRadius: '4px',
-                marginTop: '8px'
-              }}>
+              <div className="summary-row">
                 <span>🚗 Travel costs:</span>
                 <span className="summary-value">{formatInvoiceMoney(calculateTravelTotal(), invoice.currency)}</span>
               </div>
             )}
+            <div className="summary-row">
+              <span>{isCadCurrency(invoice.currency) ? `${formatCadSalesTaxLabel(invoice.taxRate)}:` : 'Tax (manual):'}</span>
+              <span className="summary-value">{formatInvoiceMoney(calculateTax(), invoice.currency)}</span>
+            </div>
             <div className="summary-row total">
               <span>Full payment (total):</span>
               <span>{formatInvoiceMoney(calculateTotal(), invoice.currency)}</span>
@@ -1560,7 +1886,8 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
           </div>
 
           <button
-            onClick={() => setStep('signature')}
+            type="button"
+            onClick={() => (isMcMakerOnly ? setStep('sendApproval') : setStep('signature'))}
             disabled={
               !companyInfo
               || !invoice.customerName
@@ -1569,12 +1896,39 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
             }
             className="continue-button"
           >
-            Continue to signing
+            {isMcMakerOnly ? 'Continue to send for approval' : 'Continue to signing'}
           </button>
         </div>
       )}
 
-      {step === 'signature' && (
+      {step === 'sendApproval' && isMcMakerOnly && (
+        <div className="form-container">
+          <h2 className="section-title">Send for approval</h2>
+          <p style={{ fontSize: '15px', color: '#555', lineHeight: 1.6, marginBottom: '20px', maxWidth: '640px' }}>
+            This saves your draft and flags it for your checker or organization admin. They will sign and deliver it to the customer; you will not send it yourself.
+          </p>
+          <div className="summary-box" style={{ marginBottom: '24px', maxWidth: '480px' }}>
+            <div className="summary-row">
+              <span>Customer</span>
+              <span className="summary-value">{invoice.customerName || '—'}</span>
+            </div>
+            <div className="summary-row total">
+              <span>Total</span>
+              <span>{formatInvoiceMoney(calculateTotal(), invoice.currency)}</span>
+            </div>
+          </div>
+          <div className="button-group">
+            <button type="button" onClick={() => setStep('form')} className="secondary-button" disabled={isSaving}>
+              Back to form
+            </button>
+            <button type="button" onClick={handleMakerSubmitForApproval} className="primary-button" disabled={isSaving || !companyInfo}>
+              {isSaving ? 'Submitting…' : 'Submit to checker for approval'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === 'signature' && !isMcMakerOnly && (
         <div className="form-container">
           <h2 className="section-title">Signing</h2>
           <p className="signature-description">
@@ -1621,7 +1975,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
         </div>
       )}
 
-      {step === 'delivery' && (
+      {step === 'delivery' && !isMcMakerOnly && (
         <div className="form-container">
           <h2 className="section-title">{editingInvoiceId ? 'Resend revised invoice' : 'Send invoice to customer'}</h2>
           {editingInvoiceId && (
@@ -1736,7 +2090,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
         </div>
       )}
 
-      {step === 'preview' && (
+      {step === 'preview' && !isMcMakerOnly && (
         <div>
           <h2 className="section-title" style={{ textAlign: 'center', marginBottom: '8px' }}>Preview</h2>
           <p style={{ textAlign: 'center', color: '#64748b', marginBottom: '20px', fontSize: '15px', lineHeight: 1.5, maxWidth: '560px', marginLeft: 'auto', marginRight: 'auto' }}>
@@ -1896,7 +2250,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
               </div>
             )}
 
-            <table className="items-table items-table-invoice" style={{ margin: '0 32px 24px' }}>
+            <table className="items-table items-table-invoice" style={{ margin: '0 0 24px', padding: '0 32px', width: 'calc(100% - 64px)', marginLeft: '32px' }}>
               <thead>
                 <tr>
                   <th className="col-description">Description</th>
@@ -1936,31 +2290,19 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
               </div>
               <div className="totals-box">
                 <div className="total-row">
-                  <span>Service charge (before tax):</span>
+                  <span>Services:</span>
                   <span className="total-value">{formatInvoiceMoney(calculateSubtotal(), invoice.currency)}</span>
                 </div>
+                {invoice.travelItems.length > 0 && (
+                  <div className="total-row">
+                    <span>Travel costs:</span>
+                    <span className="total-value">{formatInvoiceMoney(calculateTravelTotal(), invoice.currency)}</span>
+                  </div>
+                )}
                 <div className="total-row">
                   <span>{isCadCurrency(invoice.currency) ? `${formatCadSalesTaxLabel(invoice.taxRate)}:` : 'Tax (manual):'}</span>
                   <span className="total-value">{formatInvoiceMoney(calculateTax(), invoice.currency)}</span>
                 </div>
-                
-                {invoice.travelItems.length > 0 && (
-                  <div className="total-row" style={{ 
-                    backgroundColor: '#e8f5e9',
-                    padding: '8px',
-                    marginTop: '8px',
-                    borderRadius: '4px',
-                    border: '1px solid #4caf50'
-                  }}>
-                    <span style={{ fontSize: '14px', color: '#2e7d32' }}>
-                      Travel Costs:
-                    </span>
-                    <span className="total-value" style={{ color: '#2e7d32' }}>
-                      {formatInvoiceMoney(calculateTravelTotal(), invoice.currency)}
-                    </span>
-                  </div>
-                )}
-                
                 <div className="total-row grand-total">
                   <span>Total:</span>
                   <span>{formatInvoiceMoney(calculateTotal(), invoice.currency)}</span>
@@ -2033,21 +2375,26 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
                 </button>
                 <button
                   type="button"
-                  onClick={() => sendInvoice(savedInvoiceId, {
-                    invoice,
-                    companyInfo,
-                    subtotal: calculateSubtotal(),
-                    tax: calculateTax(),
-                    travelTotal: calculateTravelTotal(),
-                    total: calculateTotal(),
-                  })}
-                  disabled={sendingEmail}
+                  onClick={emailCustomerFromPreview}
+                  disabled={sendingEmail || isSaving}
                   className="success-button flex-button"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}
                 >
                   <Send size={20} aria-hidden />
-                  {sendingEmail ? 'Sending…' : 'Email again'}
+                  {sendingEmail || isSaving ? 'Sending…' : editingInvoiceId ? 'Save revision & email customer' : 'Email again'}
                 </button>
+                {editingInvoiceId && (
+                  <button
+                    type="button"
+                    onClick={() => setStep('delivery')}
+                    disabled={sendingEmail || isSaving}
+                    className="primary-button flex-button"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}
+                  >
+                    <FileCheck size={20} aria-hidden />
+                    Delivery options (manual or email)
+                  </button>
+                )}
               </div>
             ) : (
               <div

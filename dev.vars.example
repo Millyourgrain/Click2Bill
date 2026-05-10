@@ -5,3 +5,11 @@
 
 FIREBASE_API_KEY=
 RESEND_API_KEY=
+
+# Sender address — domain must be verified in Resend first.
+# For local dev you can leave as-is (uses Resend's onboarding address as fallback).
+FROM_EMAIL=Click2Bill <invoices@click2bill.ca>
+
+# Reply-To address — customer replies land here.
+# Set up click2bill.ca email forwarding: support@click2bill.ca → click2Bill.ca@gmail.com
+REPLY_TO_EMAIL=Click2Bill Support <support@click2bill.ca>

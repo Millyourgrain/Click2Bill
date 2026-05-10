@@ -12,6 +12,13 @@
 // get on invoices that have portalToken, and guest updates only for accept / contest / view / pay fields.
 // Logged-in customers with matching customerEmail/payorEmail may still read/update those invoices.
 //
+// Maker–checker (companies.invoiceSystem == "maker_checker"): invoice creates and broad updates require
+// canActAsInvoiceMaker (billing owner, maker, or org admin — not checker). Pure checkers may only patch
+// checker-whitelisted fields (portal/reminders, signatory while pending_checker, approve, or issue).
+// If status == contested, org workers may update only when canMcAdminOrBillingOwner (billing owner
+// or userTeamRole admin; legacy admin_checker treated). Deletes require billing owner or admin.
+// Checker (non-maker) may set approvalState returned_to_maker + checkerRecommendation to send a draft back.
+//
 // =====================================================================
 
 rules_version = '2';
@@ -39,6 +46,153 @@ service cloud.firestore {
         && request.resource.data.invoiceNumber == resource.data.invoiceNumber
         && request.resource.data.diff(resource.data).affectedKeys()
              .hasOnly(['status', 'viewedAt', 'acceptedAt', 'customerCommentary', 'paidAt', 'paymentReference', 'updatedAt']);
+    }
+
+    function userDocExists() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function userData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function userTeamRole() {
+      return (userDocExists() && 'userTeamRole' in userData() && userData().userTeamRole is string)
+        ? userData().userTeamRole
+        : '';
+    }
+
+    function hasOrgOwnerBinding() {
+      return userDocExists()
+        && 'organizationOwnerId' in userData()
+        && userData().organizationOwnerId is string
+        && userData().organizationOwnerId.size() > 0;
+    }
+
+    // Mirrors workerOrgContext.getWorkerDashboardPersona (userTeamRole stored lowercase in app).
+    function dashboardPersona() {
+      return hasOrgOwnerBinding() ? invitedPersona() : ownerPersona();
+    }
+
+    function invitedPersona() {
+      let r = userTeamRole();
+      return r == 'admin' || r == 'admin_checker' ? 'org_admin'
+        : r == 'checker' ? 'checker'
+        : r == 'maker' ? 'maker'
+        : 'maker';
+    }
+
+    function ownerPersona() {
+      let r = userTeamRole();
+      return r == '' ? 'org_admin'
+        : r == 'admin' || r == 'admin_checker' ? 'org_admin'
+        : r == 'checker' ? 'checker'
+        : r == 'maker' ? 'maker'
+        : 'org_admin';
+    }
+
+    function canActAsInvoiceMaker() {
+      let p = dashboardPersona();
+      return p != 'checker';
+    }
+
+    function canActAsInvoiceChecker() {
+      let p = dashboardPersona();
+      return p == 'checker' || p == 'org_admin';
+    }
+
+    function orgInvoiceSystemSafe(billingUserId) {
+      return (
+          exists(/databases/$(database)/documents/companies/$(billingUserId))
+          && 'invoiceSystem' in get(/databases/$(database)/documents/companies/$(billingUserId)).data
+          && get(/databases/$(database)/documents/companies/$(billingUserId)).data.invoiceSystem is string
+        )
+        ? get(/databases/$(database)/documents/companies/$(billingUserId)).data.invoiceSystem
+        : '';
+    }
+
+    function invoiceCreateMcOk(billingUserId) {
+      return orgInvoiceSystemSafe(billingUserId) != 'maker_checker'
+        || !userDocExists()
+        || canActAsInvoiceMaker();
+    }
+
+    // Checker: limited patches; billing owner, org admin & makers get full access via canActAsInvoiceMaker.
+    function invoiceMcCheckerOnlyPatchOk() {
+      let billingUid = resource.data.userId;
+      let d = request.resource.data.diff(resource.data).affectedKeys();
+      let meta = d.hasOnly(['portalToken', 'reminderEnabled', 'reminderFrequency', 'updatedAt', 'lastUpdatedByUid']);
+      let sign = resource.data.approvalState == 'pending_checker'
+        && d.hasOnly([
+          'signature',
+          'signatoryTitle',
+          'signatoryPrintedName',
+          'signatorySignedAt',
+          'reminderEnabled',
+          'reminderFrequency',
+          'updatedAt',
+          'lastUpdatedByUid',
+        ]);
+      let approve = d.hasOnly(['approvalState', 'checkerApprovedAt', 'updatedAt', 'lastUpdatedByUid']);
+      let issue = d.hasOnly(['status', 'approvalState', 'issuedAt', 'portalToken', 'updatedAt', 'lastUpdatedByUid']);
+      let returnToMaker = resource.data.approvalState == 'pending_checker'
+        && request.resource.data.approvalState == 'returned_to_maker'
+        && request.resource.data.status == resource.data.status
+        && request.resource.data.checkerRecommendation is string
+        && request.resource.data.checkerRecommendation.size() > 0
+        && request.resource.data.checkerRecommendation.size() <= 8000
+        && request.resource.data.returnedToMakerAt is string
+        && d.hasOnly([
+          'approvalState',
+          'checkerRecommendation',
+          'returnedToMakerAt',
+          'updatedAt',
+          'lastUpdatedByUid',
+        ]);
+      let isMc = orgInvoiceSystemSafe(billingUid) == 'maker_checker';
+      let isCheckerOnly = userDocExists() && canActAsInvoiceChecker() && !canActAsInvoiceMaker();
+      return isMc && isCheckerOnly && (meta || sign || approve || issue || returnToMaker);
+    }
+
+    function invoiceWorkerMcUpdateOk() {
+      let billingUid = resource.data.userId;
+      let mc = orgInvoiceSystemSafe(billingUid) == 'maker_checker';
+      let contested = resource.data.status == 'contested';
+      // Contested (MC): only billing owner or org admin (legacy admin_checker) — not maker or checker alone.
+      return (mc && contested)
+        ? (!userDocExists() || canMcAdminOrBillingOwner(billingUid))
+        : (
+            orgInvoiceSystemSafe(billingUid) != 'maker_checker'
+            || !userDocExists()
+            || canActAsInvoiceMaker()
+            || invoiceMcCheckerOnlyPatchOk()
+          );
+    }
+
+    function invoiceCustomerRecipientUpdateOk() {
+      return request.resource.data.userId == resource.data.userId
+        && request.resource.data.invoiceNumber == resource.data.invoiceNumber
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['status', 'viewedAt', 'acceptedAt', 'customerCommentary', 'paidAt', 'paymentReference', 'updatedAt']);
+    }
+
+    function canMcAdminOrBillingOwner(billingUserId) {
+      return request.auth.uid == billingUserId
+        || userTeamRole() == 'admin'
+        || userTeamRole() == 'admin_checker';
+    }
+
+    function invoiceDeletionCreateMcOk(billingUserId) {
+      return orgInvoiceSystemSafe(billingUserId) != 'maker_checker'
+        || !userDocExists()
+        || canMcAdminOrBillingOwner(billingUserId);
+    }
+
+    function invoiceDeleteMcOk(billingUserId) {
+      return orgInvoiceSystemSafe(billingUserId) != 'maker_checker'
+        || !userDocExists()
+        || canMcAdminOrBillingOwner(billingUserId);
     }
 
     // -------------------------------------------------------------------
@@ -90,11 +244,13 @@ service cloud.firestore {
     // -------------------------------------------------------------------
     // INVOICES - Worker creates; Customer/Payor can read & update (accept/contest/pay)
     // Used by: invoiceService
-    // Worker: full CRUD on own invoices
-    // Customer: read & update when customerEmail or payorEmail matches their email
+    // Maker–checker: create + broad update/delete require maker/admin/billing owner (see invoiceCreateMcOk,
+    // invoiceWorkerMcUpdateOk, invoiceDeleteMcOk). Checkers get checker-only field sets (invoiceMcCheckerOnlyPatchOk).
     // -------------------------------------------------------------------
     match /invoices/{docId} {
-      allow create: if request.auth != null && isOrgTeamMemberFor(request.resource.data.userId);
+      allow create: if request.auth != null
+        && isOrgTeamMemberFor(request.resource.data.userId)
+        && invoiceCreateMcOk(request.resource.data.userId);
       allow get: if (request.auth != null && (
           isOrgTeamMemberFor(resource.data.userId)
           || resource.data.customerEmail == request.auth.token.email
@@ -102,13 +258,23 @@ service cloud.firestore {
         ))
         || (resource.data.portalToken is string && resource.data.portalToken.size() >= 16);
       allow list: if request.auth != null;
-      allow update: if (request.auth != null && (
-          isOrgTeamMemberFor(resource.data.userId)
-          || resource.data.customerEmail == request.auth.token.email
-          || resource.data.payorEmail == request.auth.token.email
-        ))
-        || invoicePortalGuestUpdateOk();
-      allow delete: if request.auth != null && isOrgTeamMemberFor(resource.data.userId);
+      // Org workers first (may use fields not allowed to customers, e.g. paymentMethod).
+      allow update: if invoicePortalGuestUpdateOk()
+        || (request.auth != null
+          && isOrgTeamMemberFor(resource.data.userId)
+          && request.resource.data.userId == resource.data.userId
+          && invoiceWorkerMcUpdateOk())
+        || (request.auth != null
+          && resource.data.customerEmail == request.auth.token.email
+          && !isOrgTeamMemberFor(resource.data.userId)
+          && invoiceCustomerRecipientUpdateOk())
+        || (request.auth != null
+          && resource.data.payorEmail == request.auth.token.email
+          && !isOrgTeamMemberFor(resource.data.userId)
+          && invoiceCustomerRecipientUpdateOk());
+      allow delete: if request.auth != null
+        && isOrgTeamMemberFor(resource.data.userId)
+        && invoiceDeleteMcOk(resource.data.userId);
     }
 
     // -------------------------------------------------------------------
@@ -143,7 +309,9 @@ service cloud.firestore {
     // INVOICE DELETION AUDIT - written before invoice doc is deleted
     // -------------------------------------------------------------------
     match /invoiceDeletions/{docId} {
-      allow create: if request.auth != null && isOrgTeamMemberFor(request.resource.data.billingUserId);
+      allow create: if request.auth != null
+        && isOrgTeamMemberFor(request.resource.data.billingUserId)
+        && invoiceDeletionCreateMcOk(request.resource.data.billingUserId);
       allow read: if request.auth != null && isOrgTeamMemberFor(resource.data.billingUserId);
       allow update, delete: if false;
     }

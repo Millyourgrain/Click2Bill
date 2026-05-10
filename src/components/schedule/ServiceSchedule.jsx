@@ -4,9 +4,11 @@ import { Calendar, Clock, LogIn, LogOut, Plus, User, MapPin, LayoutDashboard } f
 import { getCustomers, getCustomer } from '../../services/customerService';
 import { getVisits, createVisit, checkIn, checkOut, updateVisitCheckTimes, getVisitHours, getVisitDays } from '../../services/visitService';
 import { sendEmail } from '../../services/emailService';
+import { useAuth } from '../../contexts/AuthContext';
 
 function ServiceSchedule() {
   const navigate = useNavigate();
+  const { canCreateInvoice } = useAuth();
   const [searchParams] = useSearchParams();
   const customerIdParam = searchParams.get('customerId');
 
@@ -254,7 +256,21 @@ function ServiceSchedule() {
                     {v.checkInTime && v.checkOutTime && (
                       <span style={{ fontSize: '14px', color: '#2e7d32', fontWeight: '500' }}>Completed</span>
                     )}
-                    <button onClick={() => navigate(`/invoice?visitId=${v.id}&customerId=${v.customerId}`)} style={{ padding: '8px 14px', background: '#f5f5f5', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>
+                    <button
+                      type="button"
+                      onClick={() => (canCreateInvoice ? navigate(`/invoice?visitId=${v.id}&customerId=${v.customerId}`) : null)}
+                      disabled={!canCreateInvoice}
+                      title={!canCreateInvoice ? 'Your role cannot create invoices.' : undefined}
+                      style={{
+                        padding: '8px 14px',
+                        background: '#f5f5f5',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: canCreateInvoice ? 'pointer' : 'not-allowed',
+                        fontSize: '14px',
+                        opacity: canCreateInvoice ? 1 : 0.6,
+                      }}
+                    >
                       Create invoice
                     </button>
                   </div>

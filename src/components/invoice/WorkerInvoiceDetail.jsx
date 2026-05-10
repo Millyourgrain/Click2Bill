@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 import { ArrowLeft, Trash2, Download } from 'lucide-react';
 import { getInvoice, deleteInvoice, canDeleteInvoiceForOrg, updateInvoice, generateInvoicePortalToken } from '../../services/invoiceService';
+import { getCompanyInfo } from '../../services/companyService';
 import { DEFAULT_INVOICE_CURRENCY } from '../../utils/invoiceCurrency';
 import { downloadStoredInvoicePdf } from '../../utils/invoicePdf';
 import StoredInvoicePreview from './StoredInvoicePreview';
@@ -10,6 +12,7 @@ import StoredInvoicePreview from './StoredInvoicePreview';
 function WorkerInvoiceDetail() {
   const navigate = useNavigate();
   const { invoiceId } = useParams();
+  const { canCreateInvoice, canAmendMcContestedInvoice } = useAuth();
   const [invoice, setInvoice] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -19,11 +22,14 @@ function WorkerInvoiceDetail() {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [portalBusy, setPortalBusy] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [orgIsMakerChecker, setOrgIsMakerChecker] = useState(false);
 
   const load = async () => {
     setLoading(true);
     setError('');
     const res = await getInvoice(invoiceId);
+    const companyRes = await getCompanyInfo();
+    setOrgIsMakerChecker(!!(companyRes.success && companyRes.data?.invoiceSystem === 'maker_checker'));
     setLoading(false);
     if (res.success) {
       setInvoice(res.data);
@@ -92,6 +98,7 @@ function WorkerInvoiceDetail() {
 
   const inv = invoice || {};
   const invCur = inv.currency || DEFAULT_INVOICE_CURRENCY;
+  const canShowContestedAmend = !orgIsMakerChecker ? canCreateInvoice : canAmendMcContestedInvoice;
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--cream)', padding: '24px' }}>
@@ -115,6 +122,63 @@ function WorkerInvoiceDetail() {
           <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '24px' }}>
             From: {inv.legalBusinessName || inv.companyName} • Date: {inv.date} • Due: {inv.dueDate || '–'} • Currency: <strong>{invCur}</strong> • Status: <strong>{inv.status}</strong>
           </p>
+
+          {inv.status === 'draft' && inv.approvalState === 'returned_to_maker' && (
+            <div style={{ marginBottom: '24px', padding: '14px 16px', background: '#fffbeb', borderRadius: '10px', border: '1px solid #eab308' }}>
+              <div style={{ fontWeight: '700', fontSize: '14px', marginBottom: '8px', color: '#854d0e' }}>Returned by checker — action needed</div>
+              {inv.checkerRecommendation ? (
+                <p style={{ fontSize: '13px', color: '#713f12', margin: '0 0 8px 0', lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
+                  {inv.checkerRecommendation}
+                </p>
+              ) : (
+                <p style={{ fontSize: '13px', color: '#713f12', margin: '0 0 8px 0', lineHeight: 1.45 }}>Open the invoice editor to revise and submit again for approval.</p>
+              )}
+              {canCreateInvoice && (
+                <Link
+                  to={`/invoice?editDraftId=${encodeURIComponent(invoiceId)}`}
+                  style={{
+                    display: 'inline-block',
+                    marginTop: '8px',
+                    padding: '10px 18px',
+                    background: 'var(--gradient-navy)',
+                    color: 'var(--cream)',
+                    textDecoration: 'none',
+                    borderRadius: '8px',
+                    fontWeight: '600',
+                    fontSize: '14px',
+                    border: '1px solid var(--gold)',
+                  }}
+                >
+                  Revise draft &amp; resubmit
+                </Link>
+              )}
+            </div>
+          )}
+
+          {inv.status === 'draft' && inv.approvalState !== 'pending_checker' && inv.approvalState !== 'returned_to_maker' && canCreateInvoice && (
+            <div style={{ marginBottom: '24px', padding: '14px 16px', background: '#eff6ff', borderRadius: '10px', border: '1px solid #93c5fd' }}>
+              <div style={{ fontWeight: '700', fontSize: '14px', marginBottom: '8px', color: '#1e3a5f' }}>Draft invoice</div>
+              <p style={{ fontSize: '13px', color: '#334155', margin: '0 0 12px 0', lineHeight: 1.45 }}>
+                Continue editing or submit this draft for checker approval from the invoice editor.
+              </p>
+              <Link
+                to={`/invoice?editDraftId=${encodeURIComponent(invoiceId)}`}
+                style={{
+                  display: 'inline-block',
+                  padding: '10px 18px',
+                  background: 'var(--gradient-navy)',
+                  color: 'var(--cream)',
+                  textDecoration: 'none',
+                  borderRadius: '8px',
+                  fontWeight: '600',
+                  fontSize: '14px',
+                  border: '1px solid var(--gold)',
+                }}
+              >
+                Continue editing draft
+              </Link>
+            </div>
+          )}
 
           {inv.customerCommentary && (
             <div style={{ marginBottom: '24px', padding: '16px 20px', background: '#fff7ed', border: '1px solid #fdba74', borderRadius: '12px' }}>
@@ -170,26 +234,39 @@ function WorkerInvoiceDetail() {
           {inv.status === 'contested' && (
             <div style={{ marginTop: '20px', padding: '16px 20px', background: '#fff7ed', border: '1px solid #fdba74', borderRadius: '12px' }}>
               <h3 style={{ margin: '0 0 8px', fontSize: '16px', fontWeight: '700', color: '#9a3412' }}>Invoice contested — amend and resend</h3>
+              {orgIsMakerChecker && (
+                <p style={{ margin: '0 0 12px', fontSize: '13px', color: '#78350f', fontWeight: '600' }}>
+                  In maker–checker mode, only an organization admin or the billing account owner may revise a contested invoice and resend it to the customer.
+                </p>
+              )}
               <p style={{ margin: '0 0 14px', fontSize: '13px', color: '#78350f' }}>Review the customer message above, then open the editor to revise line items and send a new link.</p>
-              <Link
-                to={`/invoice?editInvoiceId=${encodeURIComponent(invoiceId)}`}
-                style={{
-                  display: 'inline-block',
-                  padding: '10px 18px',
-                  background: 'var(--gradient-navy)',
-                  color: 'var(--cream)',
-                  textDecoration: 'none',
-                  borderRadius: '8px',
-                  fontWeight: '600',
-                  fontSize: '14px',
-                  border: '1px solid var(--gold)',
-                }}
-              >
-                Amend invoice &amp; resend link to customer
-              </Link>
-              <p style={{ margin: '10px 0 0', fontSize: '12px', color: '#78716c' }}>
-                Opens the invoice editor with this invoice loaded. Re-sign, preview, then send the invitation email again (link only — no PDF attachment).
-              </p>
+              {canShowContestedAmend ? (
+                <>
+                  <Link
+                    to={`/invoice?editInvoiceId=${encodeURIComponent(invoiceId)}`}
+                    style={{
+                      display: 'inline-block',
+                      padding: '10px 18px',
+                      background: 'var(--gradient-navy)',
+                      color: 'var(--cream)',
+                      textDecoration: 'none',
+                      borderRadius: '8px',
+                      fontWeight: '600',
+                      fontSize: '14px',
+                      border: '1px solid var(--gold)',
+                    }}
+                  >
+                    Amend invoice &amp; resend link to customer
+                  </Link>
+                  <p style={{ margin: '10px 0 0', fontSize: '12px', color: '#78716c' }}>
+                    Opens the invoice editor with this invoice loaded. Re-sign, preview, then send the invitation email again (link only — no PDF attachment).
+                  </p>
+                </>
+              ) : (
+                <p style={{ margin: 0, fontSize: '13px', color: '#92400e' }}>
+                  You do not have permission to amend this invoice. Contact your organization admin or billing owner.
+                </p>
+              )}
             </div>
           )}
 

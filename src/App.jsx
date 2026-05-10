@@ -1,5 +1,5 @@
-import React, { useState, useCallback } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import React, { useState, useCallback, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext.jsx';
 import ProtectedRoute from './components/common/ProtectedRoute';
 
@@ -23,6 +23,7 @@ import Dashboard from './components/dashboard/Dashboard';
 
 // Invoice & Travel
 import InvoiceGenerator from './components/invoice/InvoiceGenerator';
+import CheckerInvoiceApprove from './components/invoice/CheckerInvoiceApprove';
 import WorkerInvoiceDetail from './components/invoice/WorkerInvoiceDetail';
 import DistanceDashboard from './components/travel/DistanceDashboard';
 
@@ -34,6 +35,19 @@ import HomeRedirect from './components/common/HomeRedirect';
 import LandingOrRedirect from './components/common/LandingOrRedirect';
 
 import './App.css';
+
+/** Fires a GA4 page_view event on every React Router navigation */
+function PageTracker() {
+  const location = useLocation();
+  useEffect(() => {
+    if (typeof window.gtag !== 'function') return;
+    window.gtag('event', 'page_view', {
+      page_path: location.pathname + location.search,
+      page_title: document.title,
+    });
+  }, [location]);
+  return null;
+}
 
 function App() {
   const [travelCostItem, setTravelCostItem] = useState(null);
@@ -47,6 +61,7 @@ function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
+        <PageTracker />
         <Routes>
           {/* Public */}
           <Route path="/login" element={<Login />} />
@@ -72,6 +87,7 @@ function App() {
           />
 
           <Route path="/invoice" element={<ProtectedRoute allowedRoles={['worker', 'user', 'admin']}><InvoiceGenerator travelCostItem={travelCostItem} onTravelCostConsumed={handleTravelCostConsumed} /></ProtectedRoute>} />
+          <Route path="/invoice/approve/:invoiceId" element={<ProtectedRoute allowedRoles={['worker', 'user', 'admin']}><CheckerInvoiceApprove /></ProtectedRoute>} />
           <Route path="/invoices/:invoiceId" element={<ProtectedRoute allowedRoles={['worker', 'user', 'admin']}><WorkerInvoiceDetail /></ProtectedRoute>} />
           <Route path="/travel" element={<ProtectedRoute allowedRoles={['worker', 'user', 'admin']}><DistanceDashboard onAddToInvoice={handleAddToInvoice} /></ProtectedRoute>} />
 

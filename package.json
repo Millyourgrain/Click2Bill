@@ -22,6 +22,8 @@
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
     "@vitejs/plugin-react": "^4.2.1",
+    "firebase-admin": "^13.9.0",
+    "firebase-tools": "^13.31.1",
     "vite": "^5.0.8"
   }
 }

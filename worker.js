@@ -78,11 +78,15 @@ async function verifyFirebaseToken(idToken, apiKey) {
 
 async function sendEmailViaResend(env, { to, subject, text, html, attachments }) {
   const body = {
-    from: env.FROM_EMAIL || 'Click2Bill <onboarding@resend.dev>',
+    // FROM_EMAIL must be a verified Resend sender, e.g. "Click2Bill <invoices@click2bill.ca>"
+    from: env.FROM_EMAIL || 'Click2Bill <invoices@click2bill.ca>',
     to: Array.isArray(to) ? to : [to],
     subject,
     text: text || '',
     html: html || (text ? `<pre>${text.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>` : ''),
+    // reply_to: customer replies go to the support inbox, which forwards to the real Gmail.
+    // Set REPLY_TO_EMAIL in Cloudflare Worker vars; defaults to support@click2bill.ca.
+    reply_to: env.REPLY_TO_EMAIL || 'Click2Bill Support <support@click2bill.ca>',
   };
   if (attachments?.length) {
     body.attachments = attachments.map((a) => ({
@@ -205,9 +209,9 @@ export default {
         );
       }
 
-      // Browsers request /favicon.ico by default; we only ship /vite.svg from Vite public/.
+      // Browsers request /favicon.ico; serve our /favicon.svg instead.
       if (url.pathname === '/favicon.ico' && request.method === 'GET') {
-        const svgRequest = new Request(new URL('/vite.svg', request.url), { headers: request.headers });
+        const svgRequest = new Request(new URL('/favicon.svg', request.url), { headers: request.headers });
         const svg = await env.ASSETS.fetch(svgRequest);
         if (svg.ok) {
           return new Response(svg.body, {

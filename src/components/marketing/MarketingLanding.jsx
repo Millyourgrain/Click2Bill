@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { defaultDueDateFromInvoiceDate } from '../../utils/invoiceDates';
 import './MarketingLanding.css';
 
 function formatShortDate(iso) {
@@ -133,9 +134,8 @@ export default function MarketingLanding() {
   useEffect(() => {
     if (dueDateInitialized.current) return;
     dueDateInitialized.current = true;
-    const d = new Date();
-    d.setDate(d.getDate() + 14);
-    setDueDate(d.toISOString().split('T')[0]);
+    const today = new Date().toISOString().split('T')[0];
+    setDueDate(defaultDueDateFromInvoiceDate(today));
   }, []);
 
   const subtotal = useMemo(() => {
@@ -143,7 +143,6 @@ export default function MarketingLanding() {
   }, [items]);
 
   const taxPct = parseFloat(taxRate);
-  const taxAmount = subtotal * ((Number.isFinite(taxPct) ? taxPct : 0) / 100);
 
   const travelTotal = useMemo(() => {
     return travelRows.reduce((sum, t) => {
@@ -152,7 +151,9 @@ export default function MarketingLanding() {
     }, 0);
   }, [travelRows]);
 
-  const grandTotal = subtotal + taxAmount + travelTotal;
+  // Travel expenses are now subject to the same tax rate as services
+  const taxAmount = (subtotal + travelTotal) * ((Number.isFinite(taxPct) ? taxPct : 0) / 100);
+  const grandTotal = subtotal + travelTotal + taxAmount;
 
   const showPayorBlock = useMemo(() => {
     const pn = payorName?.trim();
@@ -378,15 +379,15 @@ export default function MarketingLanding() {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7);
       doc.setTextColor(...MT);
-      doc.text('SERVICE (before tax)', W - P - 72, y + 7);
-      doc.text(`TAX (${Number.isFinite(taxPct) ? taxPct : 0}%)`, W - P - 72, y + 14);
-      doc.text('TRAVEL', W - P - 72, y + 21);
+      doc.text('SERVICES', W - P - 72, y + 7);
+      doc.text('TRAVEL', W - P - 72, y + 14);
+      doc.text(`TAX (${Number.isFinite(taxPct) ? taxPct : 0}%)`, W - P - 72, y + 21);
       doc.text('TOTAL', W - P - 72, y + 30);
       doc.setFontSize(9);
       doc.setTextColor(...DK);
       doc.text(`$${subtotal.toFixed(2)}`, W - P - 4, y + 7, alignRight);
-      doc.text(`$${taxAmount.toFixed(2)}`, W - P - 4, y + 14, alignRight);
-      doc.text(`$${travelTotal.toFixed(2)}`, W - P - 4, y + 21, alignRight);
+      doc.text(`$${travelTotal.toFixed(2)}`, W - P - 4, y + 14, alignRight);
+      doc.text(`$${taxAmount.toFixed(2)}`, W - P - 4, y + 21, alignRight);
       doc.setFontSize(12);
       doc.setTextColor(...DK);
       doc.text(`$${grandTotal.toFixed(2)}`, W - P - 4, y + 30, alignRight);
@@ -434,6 +435,9 @@ export default function MarketingLanding() {
           <li>
             <a href="#how">How it works</a>
           </li>
+          <li>
+            <a href="#about">About us</a>
+          </li>
         </ul>
         <div className="ml-nav-end">
           <div className="ml-nav-auth-tabs" role="group" aria-label="Sign up or sign in">
@@ -449,15 +453,15 @@ export default function MarketingLanding() {
 
       <section className="ml-hero" id="home">
         <div className="ml-hero-content">
-          <div className="ml-hero-badge">Built for service businesses &amp; e-invoicing</div>
+          <div className="ml-hero-badge">Full scale e-billing platform for service businesses</div>
           <h1 className="ml-hero-title">
-            Invoices that mirror
+            Billing that mirrors
             <br />
             your <em>real workflow.</em>
           </h1>
           <p className="ml-hero-sub">
-            Try the same invoice structure as the app — company details, customer &amp; payor, service period, line items, HST on
-            services only, travel extras, and notes. Download a PDF free, or register to save and send.
+            Try the same invoice structure as the app — company details, customer &amp; payor, service period, line items,
+            travel (optional), HST and notes. Download a PDF free, or register to save and send.
           </p>
           <div className="ml-hero-actions">
             <button type="button" className="ml-btn-hero" onClick={scrollToCreate}>
@@ -474,7 +478,7 @@ export default function MarketingLanding() {
               <span className="ml-av3">B</span>
             </div>
             <span>
-              Line items, tax, and travel totals match <strong>InvoiceGenerator</strong> in the app
+              Line items, travel, and tax totals match <strong>InvoiceGenerator</strong> in the app
             </span>
           </div>
         </div>
@@ -545,8 +549,8 @@ export default function MarketingLanding() {
             <em>PDF in one click.</em>
           </h2>
           <p>
-            Headers match <strong>InvoiceGenerator</strong>: company block, invoice number &amp; dates, service period, customer &
-            payor, service address, description / quantity / rate / amount, tax on services, optional travel lines, and notes.
+            Headers match <strong>InvoiceGenerator</strong>: company block, invoice number &amp; dates, service period, customer &amp;
+            payor, service address, description / quantity / rate / amount, optional travel lines, tax, and notes.
           </p>
         </div>
 
@@ -627,7 +631,7 @@ export default function MarketingLanding() {
                 <input type="email" value={payorEmail} onChange={(e) => setPayorEmail(e.target.value)} placeholder="Billing contact" />
               </div>
             </div>
-            <p className="ml-field-hint">Tax applies to service line items only; travel is added after tax, matching the app.</p>
+            <p className="ml-field-hint">Tax applies to both service charges and travel costs.</p>
 
             <div className="ml-fsec">Line items</div>
             <div className="ml-li-header">
@@ -793,7 +797,7 @@ export default function MarketingLanding() {
                     padding: '32px',
                     borderRadius: '8px 8px 0 0',
                     textAlign: 'center',
-                    marginBottom: '32px',
+                    marginBottom: '0',
                   }}
                 >
                   <h1
@@ -809,6 +813,25 @@ export default function MarketingLanding() {
                   <div style={{ fontSize: '20px', fontWeight: '600', opacity: 0.9 }}>{invoiceNumber || 'INV-…'}</div>
                 </div>
 
+                {/* Metadata row — mirrors InvoiceGenerator layout */}
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    justifyContent: 'flex-start',
+                    alignItems: 'baseline',
+                    gap: '12px 32px',
+                    padding: '16px 32px',
+                    marginBottom: '24px',
+                    borderBottom: '1px solid #e9ecef',
+                    fontSize: '14px',
+                    color: '#333',
+                  }}
+                >
+                  <div><strong>Date:</strong> {invoiceDate || '—'}</div>
+                  {dueDate && <div><strong>Due date:</strong> {dueDate}</div>}
+                </div>
+
                 <div
                   style={{
                     display: 'grid',
@@ -816,6 +839,7 @@ export default function MarketingLanding() {
                     gap: '32px',
                     marginBottom: '32px',
                     padding: '0 32px',
+                    alignItems: 'start',
                   }}
                 >
                   <div>
@@ -864,16 +888,6 @@ export default function MarketingLanding() {
                         {serviceAddress.trim()}
                       </div>
                     )}
-                    <div style={{ marginTop: '16px', fontSize: '14px' }}>
-                      <div>
-                        <strong>Date:</strong> {invoiceDate || '—'}
-                      </div>
-                      {dueDate ? (
-                        <div>
-                          <strong>Due Date:</strong> {dueDate}
-                        </div>
-                      ) : null}
-                    </div>
                   </div>
                 </div>
 
@@ -893,7 +907,7 @@ export default function MarketingLanding() {
                   </div>
                 ) : null}
 
-                <table className="items-table" style={{ margin: '0 32px 24px' }}>
+                <table className="items-table" style={{ margin: '0 0 24px', width: 'calc(100% - 64px)', marginLeft: '32px' }}>
                   <thead>
                     <tr>
                       <th>Description</th>
@@ -952,30 +966,19 @@ export default function MarketingLanding() {
                   </div>
                   <div className="totals-box">
                     <div className="total-row">
-                      <span>Service charge (before tax):</span>
+                      <span>Services:</span>
                       <span className="total-value">${subtotal.toFixed(2)}</span>
                     </div>
+                    {travelTotal > 0 ? (
+                      <div className="total-row">
+                        <span>Travel costs:</span>
+                        <span className="total-value">${travelTotal.toFixed(2)}</span>
+                      </div>
+                    ) : null}
                     <div className="total-row">
                       <span>Tax ({Number.isFinite(taxPct) ? taxPct : 0}%):</span>
                       <span className="total-value">${taxAmount.toFixed(2)}</span>
                     </div>
-                    {travelTotal > 0 ? (
-                      <div
-                        className="total-row"
-                        style={{
-                          backgroundColor: '#e8f5e9',
-                          padding: '8px',
-                          marginTop: '8px',
-                          borderRadius: '4px',
-                          border: '1px solid #4caf50',
-                        }}
-                      >
-                        <span style={{ fontSize: '14px', color: '#2e7d32' }}>Travel Costs:</span>
-                        <span className="total-value" style={{ color: '#2e7d32' }}>
-                          ${travelTotal.toFixed(2)}
-                        </span>
-                      </div>
-                    ) : null}
                     <div className="total-row grand-total">
                       <span>Total:</span>
                       <span>${grandTotal.toFixed(2)}</span>
@@ -1004,13 +1007,13 @@ export default function MarketingLanding() {
         <div style={{ textAlign: 'center' }}>
           <span className="ml-section-tag">In the full app</span>
           <h2 className="ml-section-title" style={{ margin: '0 auto 16px' }}>
-            Customers, travel,
+            Multi-currency, payments,
             <br />
-            and approval workflow.
+            and your full workflow.
           </h2>
           <p className="ml-section-sub" style={{ margin: '0 auto 60px' }}>
-            The free tool above uses the same totals logic as your dashboard invoice: subtotal, tax on services, travel, then
-            grand total.
+            The free builder uses the same totals logic as the app: subtotal, travel, tax, then grand total. The full
+            platform extends that with multi-currency billing and support for payments through leading payment platforms.
           </p>
         </div>
         <div className="ml-features-grid ml-reveal">
@@ -1024,7 +1027,7 @@ export default function MarketingLanding() {
           <div className="ml-feat-card">
             <div className="ml-feat-icon ml-fi-brown">🚗</div>
             <h3 className="ml-feat-title">Travel records</h3>
-            <p className="ml-feat-desc">Attach mileage trips to invoices; travel shows alongside services with tax only on labour.</p>
+            <p className="ml-feat-desc">Attach mileage trips to invoices or record your trips for each service appointment.</p>
           </div>
           <div className="ml-feat-card">
             <div className="ml-feat-icon ml-fi-blue">✓</div>
@@ -1035,6 +1038,22 @@ export default function MarketingLanding() {
             <div className="ml-feat-icon ml-fi-purple">🏢</div>
             <h3 className="ml-feat-title">Company &amp; GST</h3>
             <p className="ml-feat-desc">Legal name, address, and HST/GST on every issued invoice — same blocks as the builder.</p>
+          </div>
+          <div className="ml-feat-card">
+            <div className="ml-feat-icon ml-fi-green">💱</div>
+            <h3 className="ml-feat-title">Multi-currency</h3>
+            <p className="ml-feat-desc">
+              Bill in the currency your clients use—clear symbols, line amounts, and totals so international and cross-border
+              work stays consistent from quote to paid invoice.
+            </p>
+          </div>
+          <div className="ml-feat-card ml-feat-card--accent">
+            <div className="ml-feat-icon ml-fi-gold">🔗</div>
+            <h3 className="ml-feat-title">Xero &amp; QuickBooks ready</h3>
+            <p className="ml-feat-desc">
+              Export your invoice history in one click as a Xero import CSV or a QuickBooks Online import CSV—line items,
+              GST/HST amounts, payment terms, and travel expenses all formatted to each platform's exact column spec.
+            </p>
           </div>
         </div>
       </section>
@@ -1059,7 +1078,7 @@ export default function MarketingLanding() {
           <div className="ml-step">
             <div className="ml-step-num">03</div>
             <h3 className="ml-step-title">Add customers &amp; work</h3>
-            <p className="ml-step-desc">Schedule visits, calculate travel, and open the invoice screen from the dashboard.</p>
+            <p className="ml-step-desc">Calculate or record service trips and open the invoice screen from the dashboard.</p>
           </div>
           <div className="ml-step">
             <div className="ml-step-num">04</div>
@@ -1069,9 +1088,41 @@ export default function MarketingLanding() {
         </div>
       </section>
 
+      {/* ── About Us ─────────────────────────────────────────────────── */}
+      <section className="ml-about-section" id="about">
+        <div className="ml-about-inner ml-reveal">
+          <span className="ml-section-tag">About us</span>
+          <h2 className="ml-section-title" style={{ maxWidth: '680px', margin: '16px auto 28px' }}>
+            Built by a believer in the digital revolution.
+          </h2>
+          <div className="ml-about-body">
+            <p>
+              Click2Bill was founded by a professional who experienced first-hand the inefficiency
+              of paper invoices, missed payments, and manual mileage logs. The conviction was
+              simple: <strong>every service business, regardless of size, deserves the same
+              digital billing power that large enterprises take for granted.</strong>
+            </p>
+            <p>
+              The platform brings together e-billing, travel cost tracking, multi-currency
+              support, and a structured maker–checker approval workflow — all in one place.
+              No spreadsheets, no chasing receipts, no end-of-month reconciliation panic.
+            </p>
+            <p>
+              We believe that digitising billing is not just about convenience — it is about
+              accountability, speed, and building trust with your customers. From the first
+              PDF sent to an approved, signed invoice delivered in seconds, Click2Bill is
+              designed to grow with you.
+            </p>
+            <p className="ml-about-tagline">
+              <em>Digital billing. Real results.</em>
+            </p>
+          </div>
+        </div>
+      </section>
+
       <section className="ml-cta-section">
-        <h2 className="ml-cta-title">Ready to use the full invoice workflow?</h2>
-        <p>Sign in to the portal to save invoices, manage customers, and issue from the same layout you previewed here.</p>
+        <h2 className="ml-cta-title">Ready to use the full e-billing workflow?</h2>
+        <p>Sign in to the portal to save invoices, manage customers, track travel, and issue from the same layout you previewed here.</p>
         <div className="ml-cta-actions">
           <button type="button" className="ml-btn-cta-w" onClick={() => navigate('/login')}>
             Access the portal now →
@@ -1088,7 +1139,7 @@ export default function MarketingLanding() {
             <div className="ml-logo">
               Click<span>2</span>Bill
             </div>
-            <p>Digital invoicing with customer profiles, service visits, travel costs, and optional maker–checker approval.</p>
+            <p>Full scale e-billing with customer profiles, travel costs, multi-currency support, and optional maker–checker approval.</p>
           </div>
           <div className="ml-footer-col">
             <h4>Product</h4>
@@ -1120,10 +1171,25 @@ export default function MarketingLanding() {
               </li>
             </ul>
           </div>
+          <div className="ml-footer-col">
+            <h4>Contact us</h4>
+            <ul>
+              <li className="ml-footer-contact-item">
+                <span className="ml-footer-contact-icon">📍</span>
+                60 Fairwood Circle, Unit&nbsp;46<br />Brampton, ON L6R&nbsp;0Y6
+              </li>
+              <li className="ml-footer-contact-item" style={{ marginTop: '10px' }}>
+                <span className="ml-footer-contact-icon">✉️</span>
+                <a href="mailto:click2Bill.ca@gmail.com" className="ml-footer-email">
+                  click2Bill.ca@gmail.com
+                </a>
+              </li>
+            </ul>
+          </div>
         </div>
         <div className="ml-footer-bottom">
           <span>© {new Date().getFullYear()} Click2Bill</span>
-          <span>Built for service businesses</span>
+          <span>Full scale e-billing platform for service businesses</span>
         </div>
       </footer>
     </div>

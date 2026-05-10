@@ -33,3 +33,7 @@ Environment variables
 
 # Wrangler local secrets
 .dev.vars
+
+# Firebase Admin service account key — NEVER commit this
+serviceAccountKey.json
+firestore-export/

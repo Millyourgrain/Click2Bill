@@ -20,7 +20,6 @@ function CustomerProfile() {
     payorRelationship: '',
     payorEmail: '',
     payorPhone: '',
-    sendServiceNotification: false,
   });
 
   const [loading, setLoading] = useState(false);
@@ -238,13 +237,6 @@ function CustomerProfile() {
               </div>
             </>
           )}
-
-          <div style={{ marginBottom: '24px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
-              <input type="checkbox" name="sendServiceNotification" checked={formData.sendServiceNotification} onChange={handleChange} />
-              <span style={labelStyle}>Send service notification (email for acknowledgement and onboarding on platform)</span>
-            </label>
-          </div>
 
           <div style={{ display: 'flex', gap: '12px' }}>
             <button type="button" onClick={() => navigate('/customers')} style={{ padding: '12px 24px', background: '#f0f0f0', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}>

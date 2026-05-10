@@ -2,7 +2,12 @@ import React, { createContext, useState, useEffect, useContext } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase/config';
-import { getWorkerDashboardPersona } from '../services/workerOrgContext';
+import {
+  getWorkerDashboardPersona,
+  canActAsInvoiceMaker,
+  canActAsInvoiceChecker,
+  canAmendContestedInvoiceMc,
+} from '../services/workerOrgContext';
 
 const AuthContext = createContext();
 
@@ -86,12 +91,34 @@ export const AuthProvider = ({ children }) => {
       })
     : null;
 
+  /** Same shape as getWorkerOrgContext (without async); for UI permission gates. */
+  const invoiceCapsCtx = currentUser
+    ? {
+        uid: currentUser.uid,
+        billingUserId:
+          (typeof currentUser.organizationOwnerId === 'string' && currentUser.organizationOwnerId.trim())
+            ? currentUser.organizationOwnerId.trim()
+            : currentUser.uid,
+        organizationOwnerId:
+          typeof currentUser.organizationOwnerId === 'string' ? currentUser.organizationOwnerId.trim() : '',
+        userTeamRole:
+          typeof currentUser.userTeamRole === 'string' ? currentUser.userTeamRole.toLowerCase() : '',
+      }
+    : null;
+
+  const canCreateInvoice = invoiceCapsCtx ? canActAsInvoiceMaker(invoiceCapsCtx) : false;
+  const canApproveInvoice = invoiceCapsCtx ? canActAsInvoiceChecker(invoiceCapsCtx) : false;
+  const canAmendMcContestedInvoice = invoiceCapsCtx ? canAmendContestedInvoiceMc(invoiceCapsCtx) : false;
+
   const value = {
     currentUser,
     userRole,
     loading,
     refreshUserData,
     workerDashboardPersona,
+    canCreateInvoice,
+    canApproveInvoice,
+    canAmendMcContestedInvoice,
     isAuthenticated: !!currentUser,
     isAdmin: userRole === 'admin',
     isWorker: userRole === 'worker' || userRole === 'user' || userRole === 'admin',

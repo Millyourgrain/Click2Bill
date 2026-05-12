@@ -83,8 +83,9 @@ export function appendPaymentInstructionsPage(doc, invoice, companyInfo) {
   flush('Please make payment within due date of the invoice using one of the following methods:', { gap: 8 });
 
   flush('Interac e-Transfer', { size: 12, bold: true, gap: 4 });
-  if (companyInfo?.email) {
-    flush(`Send payment to: ${companyInfo.email}`, { gap: 3 });
+  const interacEmail = companyInfo?.interacEmail?.trim() || companyInfo?.email?.trim() || '';
+  if (interacEmail) {
+    flush(`Send payment to: ${interacEmail}`, { gap: 3 });
     flush('Auto-deposit enabled.', { gap: 10 });
   } else {
     flush('Interac e-Transfer email is not set on your business profile. Add it under Business profile.', { gap: 10 });

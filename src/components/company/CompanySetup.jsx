@@ -214,6 +214,7 @@ function CompanySetup() {
     bankTransitNumber: '',
     bankInstitutionNumber: '',
     bankAccountNumber: '',
+    interacEmail: '',
     invoiceSystem: '',
     userTransactionRole: '',
     eInvoiceIssuerName: '',
@@ -242,6 +243,7 @@ function CompanySetup() {
     { email: '', role: 'checker' },
   ]);
   const [wizardStep, setWizardStep] = useState(0);
+  const [interacEmailDifferent, setInteracEmailDifferent] = useState(null);
 
   useEffect(() => {
     if (currentUser?.organizationOwnerId) {
@@ -276,6 +278,13 @@ function CompanySetup() {
         });
         setLogoPreview(d.logoUrl || null);
         setIsEditing(true);
+        const loginEmail = (currentUser?.email || '').toLowerCase().trim();
+        const savedInteracEmail = (d.interacEmail || '').toLowerCase().trim();
+        if (savedInteracEmail && savedInteracEmail !== loginEmail) {
+          setInteracEmailDifferent(true);
+        } else {
+          setInteracEmailDifferent(false);
+        }
         if (Array.isArray(d.mcInvitees) && d.mcInvitees.length > 0) {
           const norm = d.mcInvitees.slice(0, 2).map((r) => {
             let role = String(r.role || '').toLowerCase();
@@ -311,13 +320,16 @@ function CompanySetup() {
       const anyBank = formData.bankTransitNumber.trim() || formData.bankInstitutionNumber.trim() || formData.bankAccountNumber.trim();
       if (anyBank) {
         if (!/^\d{5}$/.test(formData.bankTransitNumber.trim())) {
-          return 'Transit number must be exactly 5 digits (point 6).';
+          return 'Transit number must be exactly 5 digits (point 6a).';
         }
         if (!/^\d{3}$/.test(formData.bankInstitutionNumber.trim())) {
-          return 'Institution number must be exactly 3 digits (point 6).';
+          return 'Institution number must be exactly 3 digits (point 6a).';
         }
         const acct = formData.bankAccountNumber.replace(/\s/g, '');
-        if (!/^\d{1,12}$/.test(acct)) return 'Account number must be 1–12 digits only (point 6).';
+        if (!/^\d{1,12}$/.test(acct)) return 'Account number must be 1–12 digits only (point 6a).';
+      }
+      if (interacEmailDifferent === true && formData.interacEmail.trim() && !EMAIL_RE.test(formData.interacEmail.trim())) {
+        return 'Enter a valid Interac e-Transfer email address (point 6b).';
       }
       return '';
     }
@@ -738,22 +750,106 @@ function CompanySetup() {
             </div>
           </Section>
 
-          <Section num={6} title="Payment information (direct deposit) — optional">
-            <p style={{ fontSize: '14px', color: '#555', marginTop: 0 }}>Canadian clearing account details. Leave blank to omit direct deposit info from invoices.</p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-              <div>
-                <label style={labelStyle}>Transit number (5 digits)</label>
-                <input type="text" name="bankTransitNumber" value={formData.bankTransitNumber} onChange={handleChange} inputMode="numeric" maxLength={5} placeholder="00000 — optional" style={{ ...inputStyle, paddingLeft: '12px' }} />
-              </div>
-              <div>
-                <label style={labelStyle}>Institution number (3 digits)</label>
-                <input type="text" name="bankInstitutionNumber" value={formData.bankInstitutionNumber} onChange={handleChange} inputMode="numeric" maxLength={3} placeholder="000 — optional" style={{ ...inputStyle, paddingLeft: '12px' }} />
-              </div>
-            </div>
-            <div>
-              <label style={labelStyle}>Account number (up to 12 digits)</label>
-              <input type="text" name="bankAccountNumber" value={formData.bankAccountNumber} onChange={handleChange} inputMode="numeric" maxLength={12} placeholder="Account number — optional" style={{ ...inputStyle, paddingLeft: '12px' }} />
-            </div>
+          <Section num={6} title="Payment information">
+            {(() => {
+              const isMakerOnly = formData.invoiceSystem === INVOICE_SYSTEM.MC && formData.userTransactionRole === TRANSACTION_ROLE.MAKER;
+              const loginEmail = currentUser?.email || '';
+              const effectiveInteracEmail = interacEmailDifferent === true
+                ? formData.interacEmail
+                : loginEmail;
+
+              return (
+                <>
+                  {isMakerOnly && (
+                    <div style={{ background: '#fff8e1', border: '1px solid #ffe082', borderRadius: '8px', padding: '10px 14px', marginBottom: '16px', fontSize: '13px', color: '#7a5f00' }}>
+                      Payment details can only be set by an Authorized Signatory, Admin, or Checker — not a Maker.
+                    </div>
+                  )}
+
+                  {/* 6a — Direct Deposit */}
+                  <div style={{ marginBottom: '20px' }}>
+                    <div style={{ fontWeight: '700', fontSize: '14px', color: 'var(--navy)', marginBottom: '6px' }}>6a. Direct deposit (EFT) — optional</div>
+                    <p style={{ fontSize: '13px', color: '#555', marginTop: 0, marginBottom: '12px' }}>Canadian clearing account details. Leave blank to omit direct deposit info from invoices.</p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                      <div>
+                        <label style={labelStyle}>Transit number (5 digits)</label>
+                        <input type="text" name="bankTransitNumber" value={formData.bankTransitNumber} onChange={handleChange} inputMode="numeric" maxLength={5} placeholder="00000 — optional" disabled={isMakerOnly} style={{ ...inputStyle, paddingLeft: '12px', background: isMakerOnly ? '#f5f5f5' : undefined }} />
+                      </div>
+                      <div>
+                        <label style={labelStyle}>Institution number (3 digits)</label>
+                        <input type="text" name="bankInstitutionNumber" value={formData.bankInstitutionNumber} onChange={handleChange} inputMode="numeric" maxLength={3} placeholder="000 — optional" disabled={isMakerOnly} style={{ ...inputStyle, paddingLeft: '12px', background: isMakerOnly ? '#f5f5f5' : undefined }} />
+                      </div>
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Account number (up to 12 digits)</label>
+                      <input type="text" name="bankAccountNumber" value={formData.bankAccountNumber} onChange={handleChange} inputMode="numeric" maxLength={12} placeholder="Account number — optional" disabled={isMakerOnly} style={{ ...inputStyle, paddingLeft: '12px', background: isMakerOnly ? '#f5f5f5' : undefined }} />
+                    </div>
+                  </div>
+
+                  {/* 6b — Interac e-Transfer */}
+                  <div>
+                    <div style={{ fontWeight: '700', fontSize: '14px', color: 'var(--navy)', marginBottom: '6px' }}>6b. Interac e-Transfer</div>
+                    <p style={{ fontSize: '13px', color: '#555', marginTop: 0, marginBottom: '12px' }}>
+                      Is the Interac e-Transfer email address different from the sign-in email address?
+                    </p>
+                    <div style={{ display: 'flex', gap: '12px', marginBottom: '14px' }}>
+                      {[{ label: 'Yes', val: true }, { label: 'No', val: false }].map(({ label, val }) => (
+                        <button
+                          key={label}
+                          type="button"
+                          disabled={isMakerOnly}
+                          onClick={() => {
+                            if (!isMakerOnly) {
+                              setInteracEmailDifferent(val);
+                              if (!val) setFormData((p) => ({ ...p, interacEmail: '' }));
+                            }
+                          }}
+                          style={{
+                            padding: '8px 28px',
+                            borderRadius: '8px',
+                            border: interacEmailDifferent === val ? '2px solid var(--navy)' : '2px solid #e0e0e0',
+                            background: interacEmailDifferent === val ? 'var(--navy)' : '#fff',
+                            color: interacEmailDifferent === val ? '#fff' : '#333',
+                            fontWeight: '600',
+                            fontSize: '14px',
+                            cursor: isMakerOnly ? 'not-allowed' : 'pointer',
+                            opacity: isMakerOnly ? 0.5 : 1,
+                          }}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {interacEmailDifferent !== null && (
+                      <div>
+                        <label style={labelStyle}>Interac e-Transfer email</label>
+                        <div style={iconWrap}>
+                          <Mail size={18} style={iconStyle} />
+                          <input
+                            type="email"
+                            name="interacEmail"
+                            value={effectiveInteracEmail}
+                            onChange={interacEmailDifferent ? handleChange : undefined}
+                            readOnly={!interacEmailDifferent || isMakerOnly}
+                            disabled={isMakerOnly}
+                            placeholder={interacEmailDifferent ? 'e-Transfer email address' : ''}
+                            style={{
+                              ...inputStyle,
+                              background: (!interacEmailDifferent || isMakerOnly) ? '#f5f5f5' : undefined,
+                              color: !interacEmailDifferent ? '#555' : undefined,
+                            }}
+                          />
+                        </div>
+                        {!interacEmailDifferent && (
+                          <p style={{ fontSize: '12px', color: '#777', marginTop: '6px' }}>Using your sign-in email: {loginEmail}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
           </Section>
           </>
           )}

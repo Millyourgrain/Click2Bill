@@ -750,30 +750,62 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
     return calculateSubtotal() + calculateTax() + calculateTravelTotal();
   };
 
+  /** Extract canvas-relative coordinates from mouse or touch event, scaled to canvas resolution. */
+  const getCanvasPos = (e, canvas) => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const src = e.touches ? e.touches[0] : e;
+    return {
+      x: (src.clientX - rect.left) * scaleX,
+      y: (src.clientY - rect.top) * scaleY,
+    };
+  };
+
   const startDrawing = (e) => {
     setIsDrawing(true);
     const canvas = signatureRef.current;
     const ctx = canvas.getContext('2d');
-    const rect = canvas.getBoundingClientRect();
+    const { x, y } = getCanvasPos(e, canvas);
     ctx.beginPath();
-    ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top);
+    ctx.moveTo(x, y);
   };
 
   const draw = (e) => {
     if (!isDrawing) return;
     const canvas = signatureRef.current;
     const ctx = canvas.getContext('2d');
-    const rect = canvas.getBoundingClientRect();
-    ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
+    const { x, y } = getCanvasPos(e, canvas);
+    ctx.lineTo(x, y);
     ctx.strokeStyle = '#1a1a1a';
     ctx.lineWidth = 2;
     ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
     ctx.stroke();
   };
 
   const stopDrawing = () => {
     setIsDrawing(false);
   };
+
+  /** Attach non-passive touch listeners so preventDefault() stops page scroll while signing. */
+  useEffect(() => {
+    const canvas = signatureRef.current;
+    if (!canvas) return;
+    const onTouchStart = (e) => { e.preventDefault(); startDrawing(e); };
+    const onTouchMove  = (e) => { e.preventDefault(); draw(e); };
+    const onTouchEnd   = (e) => { e.preventDefault(); stopDrawing(); };
+    const opts = { passive: false };
+    canvas.addEventListener('touchstart', onTouchStart, opts);
+    canvas.addEventListener('touchmove',  onTouchMove,  opts);
+    canvas.addEventListener('touchend',   onTouchEnd,   opts);
+    return () => {
+      canvas.removeEventListener('touchstart', onTouchStart, opts);
+      canvas.removeEventListener('touchmove',  onTouchMove,  opts);
+      canvas.removeEventListener('touchend',   onTouchEnd,   opts);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDrawing, step]);
 
   const clearSignature = () => {
     const canvas = signatureRef.current;
@@ -1961,6 +1993,7 @@ function InvoiceGenerator({ travelCostItem: travelCostItemProp, onTravelCostCons
               onMouseUp={stopDrawing}
               onMouseLeave={stopDrawing}
               className="signature-canvas"
+              style={{ touchAction: 'none', cursor: 'crosshair' }}
             />
           </div>
 

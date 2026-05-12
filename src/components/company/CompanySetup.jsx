@@ -308,14 +308,17 @@ function CompanySetup() {
       if (bn.length > 0 && bn.length !== 9) {
         return 'If you enter a CRA Business Number (BN), it must be exactly 9 digits (point 4).';
       }
-      if (!/^\d{5}$/.test(formData.bankTransitNumber.trim())) {
-        return 'Transit number must be exactly 5 digits (point 6).';
+      const anyBank = formData.bankTransitNumber.trim() || formData.bankInstitutionNumber.trim() || formData.bankAccountNumber.trim();
+      if (anyBank) {
+        if (!/^\d{5}$/.test(formData.bankTransitNumber.trim())) {
+          return 'Transit number must be exactly 5 digits (point 6).';
+        }
+        if (!/^\d{3}$/.test(formData.bankInstitutionNumber.trim())) {
+          return 'Institution number must be exactly 3 digits (point 6).';
+        }
+        const acct = formData.bankAccountNumber.replace(/\s/g, '');
+        if (!/^\d{1,12}$/.test(acct)) return 'Account number must be 1–12 digits only (point 6).';
       }
-      if (!/^\d{3}$/.test(formData.bankInstitutionNumber.trim())) {
-        return 'Institution number must be exactly 3 digits (point 6).';
-      }
-      const acct = formData.bankAccountNumber.replace(/\s/g, '');
-      if (!/^\d{1,12}$/.test(acct)) return 'Account number must be 1–12 digits only (point 6).';
       return '';
     }
     if (step === 2) {
@@ -735,21 +738,21 @@ function CompanySetup() {
             </div>
           </Section>
 
-          <Section num={6} title="Payment information (direct deposit)">
-            <p style={{ fontSize: '14px', color: '#555', marginTop: 0 }}>Canadian clearing account details for this company.</p>
+          <Section num={6} title="Payment information (direct deposit) — optional">
+            <p style={{ fontSize: '14px', color: '#555', marginTop: 0 }}>Canadian clearing account details. Leave blank to omit direct deposit info from invoices.</p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
               <div>
-                <label style={labelStyle}>Transit number * (5 digits)</label>
-                <input type="text" name="bankTransitNumber" value={formData.bankTransitNumber} onChange={handleChange} required inputMode="numeric" maxLength={5} placeholder="00000" style={{ ...inputStyle, paddingLeft: '12px' }} />
+                <label style={labelStyle}>Transit number (5 digits)</label>
+                <input type="text" name="bankTransitNumber" value={formData.bankTransitNumber} onChange={handleChange} inputMode="numeric" maxLength={5} placeholder="00000 — optional" style={{ ...inputStyle, paddingLeft: '12px' }} />
               </div>
               <div>
-                <label style={labelStyle}>Institution number * (3 digits)</label>
-                <input type="text" name="bankInstitutionNumber" value={formData.bankInstitutionNumber} onChange={handleChange} required inputMode="numeric" maxLength={3} placeholder="000" style={{ ...inputStyle, paddingLeft: '12px' }} />
+                <label style={labelStyle}>Institution number (3 digits)</label>
+                <input type="text" name="bankInstitutionNumber" value={formData.bankInstitutionNumber} onChange={handleChange} inputMode="numeric" maxLength={3} placeholder="000 — optional" style={{ ...inputStyle, paddingLeft: '12px' }} />
               </div>
             </div>
             <div>
-              <label style={labelStyle}>Account number * (up to 12 digits)</label>
-              <input type="text" name="bankAccountNumber" value={formData.bankAccountNumber} onChange={handleChange} required inputMode="numeric" maxLength={12} placeholder="Account number" style={{ ...inputStyle, paddingLeft: '12px' }} />
+              <label style={labelStyle}>Account number (up to 12 digits)</label>
+              <input type="text" name="bankAccountNumber" value={formData.bankAccountNumber} onChange={handleChange} inputMode="numeric" maxLength={12} placeholder="Account number — optional" style={{ ...inputStyle, paddingLeft: '12px' }} />
             </div>
           </Section>
           </>

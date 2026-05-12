@@ -90,15 +90,17 @@ export function appendPaymentInstructionsPage(doc, invoice, companyInfo) {
     flush('Interac e-Transfer email is not set on your business profile. Add it under Business profile.', { gap: 10 });
   }
 
-  flush('Direct Bank Deposit (EFT)', { size: 12, bold: true, gap: 4 });
-  const acctName = companyInfo?.legalBusinessName || companyInfo?.companyName || '—';
-  const transit = companyInfo?.bankTransitNumber || '';
-  const inst = companyInfo?.bankInstitutionNumber || '';
-  const acct = companyInfo?.bankAccountNumber || '';
-  flush(`Account Name: ${acctName}`, { gap: 3 });
-  flush(`Transit Number: ${transit || '—'}`, { gap: 3 });
-  flush(`Institution Number: ${inst || '—'}`, { gap: 3 });
-  flush(`Account Number: ${acct || '—'}`, { gap: 10 });
+  const transit = companyInfo?.bankTransitNumber?.trim() || '';
+  const inst = companyInfo?.bankInstitutionNumber?.trim() || '';
+  const acct = companyInfo?.bankAccountNumber?.trim() || '';
+  if (transit || inst || acct) {
+    flush('Direct Bank Deposit (EFT)', { size: 12, bold: true, gap: 4 });
+    const acctName = companyInfo?.legalBusinessName || companyInfo?.companyName || '—';
+    flush(`Account Name: ${acctName}`, { gap: 3 });
+    if (transit) flush(`Transit Number: ${transit}`, { gap: 3 });
+    if (inst) flush(`Institution Number: ${inst}`, { gap: 3 });
+    if (acct) flush(`Account Number: ${acct}`, { gap: 10 });
+  }
 
   const invNum = invoice?.invoiceNumber || 'Invoice Number';
   flush(`Please include the ${invNum} in the payment reference.`, { gap: 6 });

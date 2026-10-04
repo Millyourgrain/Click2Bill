@@ -313,7 +313,7 @@ function CustomerInvoiceView({ publicPortal = false }) {
             <div style={{ marginTop: '24px', padding: '20px', background: 'var(--cream-dark)', borderRadius: '12px', border: '1px solid var(--gold)' }}>
               <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px' }}>Pay now</h3>
               <p style={{ fontSize: '14px', color: '#64748b', marginBottom: '12px' }}>
-                Pay this invoice by card on Stripe’s secure page. Click2Bill does not see your card number. Direct deposit and Interac e-Transfer remain available.
+                Pay this invoice by card on Stripe. Stripe deposits the payment to the company that sent the invoice. Click2Bill does not receive the card payment or see your card number.
               </p>
               <button type="button" onClick={handlePayNow} disabled={paying} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '12px 20px', background: paying ? '#94a3b8' : 'var(--gradient-navy)', color: 'var(--cream)', border: paying ? 'none' : '1px solid var(--gold)', borderRadius: '8px', cursor: paying ? 'not-allowed' : 'pointer', fontWeight: '600' }}>
                 <CreditCard size={18} /> {paying ? 'Opening Stripe…' : 'Pay now'}

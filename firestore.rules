@@ -308,6 +308,11 @@ service cloud.firestore {
       allow read, update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
     }
 
+    // Helcim checkout secrets. Written only by the Worker service account.
+    match /cardCheckoutSessions/{docId} {
+      allow read, write: if false;
+    }
+
     // -------------------------------------------------------------------
     // INVOICE DELETION AUDIT - written before invoice doc is deleted
     // -------------------------------------------------------------------

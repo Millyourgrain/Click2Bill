@@ -14,7 +14,13 @@ FROM_EMAIL=Click2Bill <invoices@click2bill.ca>
 # Set up click2bill.ca email forwarding: support@click2bill.ca → click2Bill.ca@gmail.com
 REPLY_TO_EMAIL=Click2Bill Support <support@click2bill.ca>
 
-# Stripe Checkout. Placeholders only — replace for local `wrangler dev`. Never commit .dev.vars.
+# Helcim Pay now. Placeholders only — replace for local `wrangler dev`. Never commit .dev.vars.
+# API token: Helcim → Integrations → API Access (HelcimPay enabled, checkout domain whitelisted).
+HELCIM_API_TOKEN=placeholder
+# Webhook verifier token from Helcim → Integrations → Webhooks.
+HELCIM_WEBHOOK_VERIFIER=placeholder
+
+# Stripe Checkout remains in the worker. Pay now on the invoice uses Helcim.
 STRIPE_SECRET_KEY=sk_test_placeholder
 STRIPE_WEBHOOK_SECRET=whsec_placeholder
 

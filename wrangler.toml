@@ -61,7 +61,19 @@ not_found_handling = "single-page-application"
 # RESEND_API_KEY — set as a secret (never put in this file):
 #   npx wrangler secret put RESEND_API_KEY
 #
-# Stripe Checkout (hosted). Secrets — never put keys in this file or in Firestore:
+# Stripe Connect is Pay now. The platform secret creates Express accounts and direct charges
+# on each company's connected account. Enable Connect, then send account.updated and
+# checkout.session.completed (including events on connected accounts) to:
+#   POST /api/stripe-webhook
+#   npx wrangler secret put STRIPE_SECRET_KEY
+#   npx wrangler secret put STRIPE_WEBHOOK_SECRET
+#
+# Helcim Pay now (hosted modal). Secrets — never put keys in this file or in Firestore:
+#   npx wrangler secret put HELCIM_API_TOKEN
+#   npx wrangler secret put HELCIM_WEBHOOK_VERIFIER
+# Webhook path: POST /api/card-processor-webhook
+#   (Helcim rejects webhook URLs that contain the word Helcim.)
+# Stripe Checkout remains available:
 #   npx wrangler secret put STRIPE_SECRET_KEY
 #   npx wrangler secret put STRIPE_WEBHOOK_SECRET
 # Webhook path: POST /api/stripe-webhook  (event checkout.session.completed)

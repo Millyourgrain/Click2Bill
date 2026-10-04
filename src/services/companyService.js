@@ -43,8 +43,6 @@ export const saveCompanyInfo = async (companyData) => {
       bankTransitNumber: companyData.bankTransitNumber || '',
       bankInstitutionNumber: companyData.bankInstitutionNumber || '',
       bankAccountNumber: companyData.bankAccountNumber || '',
-      onlineCardPaymentEnabled: companyData.onlineCardPaymentEnabled === true,
-      stripeCheckoutConnected: companyData.onlineCardPaymentEnabled === true,
       invoiceSystem: companyData.invoiceSystem || '',
       userTransactionRole: companyData.userTransactionRole || '',
       eInvoiceIssuerName: companyData.eInvoiceIssuerName || '',
@@ -66,7 +64,11 @@ export const saveCompanyInfo = async (companyData) => {
     if (companyDoc.exists()) {
       await updateDoc(companyRef, dataToSave);
     } else {
-      await setDoc(companyRef, { ...dataToSave, createdAt: new Date().toISOString() });
+      await setDoc(companyRef, {
+        ...dataToSave,
+        onlineCardPaymentEnabled: false,
+        createdAt: new Date().toISOString(),
+      });
     }
 
     let userTeamRoleUpdate = '';

@@ -27,6 +27,8 @@ function collectedMethodLine(byMethodByCurrency, code) {
   if (!methods) return '';
   const labels = [
     ['card', 'Card'],
+    ['helcim', 'Helcim'],
+    ['stripe', 'Stripe'],
     ['interac', 'Interac'],
     ['eft_pad', 'EFT/PAD'],
     ['cash', 'Cash'],

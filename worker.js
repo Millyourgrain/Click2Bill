@@ -1,10 +1,14 @@
 /**
- * Cloudflare Worker - handles /api/send-email, Stripe Checkout, and static assets.
+ * Cloudflare Worker - handles /api/send-email, Helcim Pay now, Stripe Checkout, and static assets.
  * Requires: RESEND_API_KEY (secret), FIREBASE_API_KEY (var).
- * Card payments: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, plus Firestore service-account vars
+ * Pay now uses Helcim: HELCIM_API_TOKEN, HELCIM_WEBHOOK_VERIFIER.
+ * Stripe Checkout remains available: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET.
+ * Both need Firestore service-account vars
  * (FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY). See DEPLOY-CLOUDFLARE.md.
  */
 import { handleCreateCheckoutSession, handleStripeWebhook } from './workerPayments.js';
+import { handleStripeConnectOnboarding, handleStripeConnectRefresh } from './workerStripeConnect.js';
+import { handleCreateHelcimSession, handleConfirmHelcimPayment, handleHelcimWebhook } from './workerHelcim.js';
 const RESEND_API = 'https://api.resend.com/emails';
 const FIREBASE_VERIFY_URL = 'https://identitytoolkit.googleapis.com/v1/accounts:lookup';
 
@@ -195,6 +199,26 @@ export default {
       const url = new URL(request.url);
       if (url.pathname === '/api/send-email' && request.method === 'POST') {
         return handleSendEmail(request, env);
+      }
+
+      if (url.pathname === '/api/create-helcim-session' && request.method === 'POST') {
+        return handleCreateHelcimSession(request, env);
+      }
+
+      if (url.pathname === '/api/confirm-card-payment' && request.method === 'POST') {
+        return handleConfirmHelcimPayment(request, env);
+      }
+
+      if (url.pathname === '/api/card-processor-webhook' && request.method === 'POST') {
+        return handleHelcimWebhook(request, env);
+      }
+
+      if (url.pathname === '/api/stripe-connect/onboarding' && request.method === 'POST') {
+        return handleStripeConnectOnboarding(request, env);
+      }
+
+      if (url.pathname === '/api/stripe-connect/refresh' && request.method === 'POST') {
+        return handleStripeConnectRefresh(request, env);
       }
 
       if (url.pathname === '/api/create-checkout-session' && request.method === 'POST') {

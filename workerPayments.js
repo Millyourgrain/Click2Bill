@@ -9,7 +9,9 @@ const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const STRIPE_API = 'https://api.stripe.com/v1';
 const DATASTORE_SCOPE = 'https://www.googleapis.com/auth/datastore';
 
-const PAYABLE_STATUSES = new Set(['sent', 'viewed', 'accepted', 'overdue']);
+export const PAYABLE_STATUSES = new Set(['sent', 'viewed', 'accepted', 'overdue']);
+/** Click2Bill invoicing fee in basis points. 0 until a later release; 10 = 0.1%. */
+const CLICK2BILL_FEE_BPS = 0;
 const ZERO_DECIMAL = new Set([
   'bif', 'clp', 'djf', 'gnf', 'jpy', 'kmf', 'krw', 'mga', 'pyg', 'rwf', 'ugx', 'vnd', 'vuv', 'xaf', 'xof', 'xpf',
 ]);
@@ -22,14 +24,14 @@ const corsHeaders = {
 
 let tokenCache = { accessToken: '', expiresAt: 0 };
 
-function json(body, status = 200) {
+export function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 }
 
-function isSafeDocId(id) {
+export function isSafeDocId(id) {
   return typeof id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(id);
 }
 
@@ -82,11 +84,11 @@ async function signServiceAccountJwt(env) {
   return `${unsigned}.${base64UrlEncode(sig)}`;
 }
 
-function firestoreConfigured(env) {
+export function firestoreConfigured(env) {
   return !!(env.FIREBASE_PROJECT_ID && env.FIREBASE_CLIENT_EMAIL && env.FIREBASE_PRIVATE_KEY);
 }
 
-async function getGoogleAccessToken(env) {
+export async function getGoogleAccessToken(env) {
   const now = Date.now();
   if (tokenCache.accessToken && tokenCache.expiresAt > now + 60_000) return tokenCache.accessToken;
   const assertion = await signServiceAccountJwt(env);
@@ -133,14 +135,14 @@ function unwrapFirestoreValue(v) {
   return null;
 }
 
-function unwrapDoc(doc) {
+export function unwrapDoc(doc) {
   const out = {};
   const fields = doc?.fields || {};
   for (const [k, val] of Object.entries(fields)) out[k] = unwrapFirestoreValue(val);
   return out;
 }
 
-async function getFirestoreDoc(env, collectionName, docId) {
+export async function getFirestoreDoc(env, collectionName, docId) {
   const token = await getGoogleAccessToken(env);
   const res = await fetch(firestoreDocUrl(env, collectionName, docId), {
     headers: { Authorization: `Bearer ${token}` },
@@ -153,7 +155,7 @@ async function getFirestoreDoc(env, collectionName, docId) {
   return unwrapDoc(await res.json());
 }
 
-async function patchFirestoreDoc(env, collectionName, docId, fields) {
+export async function patchFirestoreDoc(env, collectionName, docId, fields) {
   const token = await getGoogleAccessToken(env);
   const url = new URL(firestoreDocUrl(env, collectionName, docId));
   for (const name of Object.keys(fields)) url.searchParams.append('updateMask.fieldPaths', name);
@@ -171,6 +173,24 @@ async function patchFirestoreDoc(env, collectionName, docId, fields) {
   }
 }
 
+export async function deleteFirestoreDoc(env, collectionName, docId) {
+  const token = await getGoogleAccessToken(env);
+  const res = await fetch(firestoreDocUrl(env, collectionName, docId), {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok && res.status !== 404) {
+    console.error('Firestore delete failed', collectionName, res.status);
+    throw new Error('Firestore delete failed');
+  }
+}
+
+function click2BillFeeMinor(amountMinor) {
+  const fee = Math.round(amountMinor * CLICK2BILL_FEE_BPS / 10000);
+  if (!Number.isSafeInteger(fee) || fee < 1 || fee >= amountMinor) return 0;
+  return fee;
+}
+
 function minorUnits(total, currency) {
   const n = Number(total);
   if (!Number.isFinite(n) || n <= 0) return null;
@@ -180,7 +200,7 @@ function minorUnits(total, currency) {
   return minor;
 }
 
-function allowedAppOrigin(request) {
+export function allowedAppOrigin(request) {
   const origin = request.headers.get('Origin') || '';
   let parsed;
   try {
@@ -196,7 +216,7 @@ function allowedAppOrigin(request) {
   return '';
 }
 
-async function lookupFirebaseUser(idToken, apiKey) {
+export async function lookupFirebaseUser(idToken, apiKey) {
   if (!idToken || !apiKey || String(apiKey).includes('PASTE_YOUR')) return null;
   const res = await fetch(`${FIREBASE_LOOKUP_URL}?key=${encodeURIComponent(apiKey)}`, {
     method: 'POST',
@@ -213,7 +233,7 @@ async function lookupFirebaseUser(idToken, apiKey) {
   return user;
 }
 
-async function authorizePayer(request, env, invoice, portalToken) {
+export async function authorizePayer(request, env, invoice, portalToken) {
   const supplied = typeof portalToken === 'string' ? portalToken.trim() : '';
   if (supplied) {
     const expected = typeof invoice.portalToken === 'string' ? invoice.portalToken : '';
@@ -244,25 +264,46 @@ async function authorizePayer(request, env, invoice, portalToken) {
   return { ok: false, status: 403, error: 'You cannot pay this invoice' };
 }
 
-async function stripeForm(env, path, params) {
+function stripeHeaders(env, stripeAccount, contentType) {
+  const headers = { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` };
+  if (contentType) headers['Content-Type'] = contentType;
+  if (stripeAccount) headers['Stripe-Account'] = stripeAccount;
+  return headers;
+}
+
+async function stripeForm(env, path, params, stripeAccount) {
   const res = await fetch(`${STRIPE_API}${path}`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
+    headers: stripeHeaders(env, stripeAccount, 'application/x-www-form-urlencoded'),
     body: params instanceof URLSearchParams ? params : new URLSearchParams(params || {}),
   });
   const data = await res.json().catch(() => ({}));
   return { ok: res.ok, status: res.status, data };
 }
 
-async function stripeGet(env, path) {
+async function stripeGet(env, path, stripeAccount) {
   const res = await fetch(`${STRIPE_API}${path}`, {
-    headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` },
+    headers: stripeHeaders(env, stripeAccount),
   });
   const data = await res.json().catch(() => ({}));
   return { ok: res.ok, status: res.status, data };
+}
+
+export async function syncStripeConnectedAccount(env, account) {
+  const companyId = account?.metadata?.click2billCompanyId;
+  if (!isSafeDocId(companyId) || !/^acct_[A-Za-z0-9]+$/.test(account?.id || '')) return false;
+  const charges = account.charges_enabled === true;
+  const payouts = account.payouts_enabled === true;
+  const now = new Date().toISOString();
+  await patchFirestoreDoc(env, 'companies', companyId, {
+    stripeConnectedAccountId: { stringValue: account.id },
+    stripeChargesEnabled: { booleanValue: charges },
+    stripePayoutsEnabled: { booleanValue: payouts },
+    stripeDetailsSubmitted: { booleanValue: account.details_submitted === true },
+    onlineCardPaymentEnabled: { booleanValue: charges && payouts },
+    updatedAt: { stringValue: now },
+  });
+  return true;
 }
 
 function returnUrls(origin, invoiceId, invoice, via) {
@@ -325,8 +366,16 @@ export async function handleCreateCheckoutSession(request, env) {
   } catch {
     return json({ error: 'Could not load company' }, 500);
   }
-  if (!company || company.onlineCardPaymentEnabled !== true) {
-    return json({ error: 'Online card payment is not enabled for this invoice.' }, 403);
+  const stripeAccount = typeof company?.stripeConnectedAccountId === 'string' ? company.stripeConnectedAccountId : '';
+  if (!/^acct_[A-Za-z0-9]+$/.test(stripeAccount)) {
+    return json({ error: 'This company has not connected Stripe.' }, 403);
+  }
+  const account = await stripeGet(env, `/accounts/${stripeAccount}`);
+  if (!account.ok || account.data?.metadata?.click2billCompanyId !== invoice.userId) {
+    return json({ error: 'This company has not connected Stripe.' }, 403);
+  }
+  if (account.data.charges_enabled !== true || account.data.payouts_enabled !== true) {
+    return json({ error: 'Stripe is still finishing this company’s account.' }, 403);
   }
 
   const origin = allowedAppOrigin(request);
@@ -334,21 +383,26 @@ export async function handleCreateCheckoutSession(request, env) {
 
   const { successUrl, cancelUrl } = returnUrls(origin, invoiceId, invoice, authz.via);
 
+  const platformFee = click2BillFeeMinor(amount);
   const existingId = typeof invoice.stripeCheckoutSessionId === 'string' ? invoice.stripeCheckoutSessionId : '';
   if (/^cs_[A-Za-z0-9_]+$/.test(existingId)) {
-    const existing = await stripeGet(env, `/checkout/sessions/${existingId}`);
+    const existing = await stripeGet(env, `/checkout/sessions/${existingId}?expand[]=payment_intent`, stripeAccount);
     if (existing.ok) {
       const session = existing.data || {};
       const sameInvoice = session.metadata?.invoiceId === invoiceId || session.client_reference_id === invoiceId;
       const sameMoney = session.amount_total === amount && String(session.currency || '').toUpperCase() === currency;
-      if (sameInvoice && session.status === 'open' && session.url && sameMoney) {
+      const intentFee = session.payment_intent && typeof session.payment_intent === 'object'
+        ? Number(session.payment_intent.application_fee_amount || 0)
+        : null;
+      const sameFee = intentFee === platformFee;
+      if (sameInvoice && session.status === 'open' && session.url && sameMoney && sameFee) {
         return json({ url: session.url });
       }
       if (sameInvoice && session.status === 'complete' && session.payment_status === 'paid') {
         return json({ error: 'This payment is already complete and is being confirmed.' }, 409);
       }
       if (sameInvoice && session.status === 'open') {
-        await stripeForm(env, `/checkout/sessions/${existingId}/expire`, new URLSearchParams());
+        await stripeForm(env, `/checkout/sessions/${existingId}/expire`, new URLSearchParams(), stripeAccount);
       }
     }
   }
@@ -361,6 +415,7 @@ export async function handleCreateCheckoutSession(request, env) {
   params.set('client_reference_id', invoiceId);
   params.set('metadata[invoiceId]', invoiceId);
   params.set('payment_intent_data[metadata][invoiceId]', invoiceId);
+  if (platformFee > 0) params.set('payment_intent_data[application_fee_amount]', String(platformFee));
   params.append('payment_method_types[0]', 'card');
   params.set('line_items[0][quantity]', '1');
   params.set('line_items[0][price_data][currency]', currency.toLowerCase());
@@ -369,7 +424,7 @@ export async function handleCreateCheckoutSession(request, env) {
   const receiptEmail = String(invoice.payorEmail || invoice.customerEmail || '').trim();
   if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(receiptEmail)) params.set('customer_email', receiptEmail);
 
-  const created = await stripeForm(env, '/checkout/sessions', params);
+  const created = await stripeForm(env, '/checkout/sessions', params, stripeAccount);
   if (!created.ok || !created.data?.url) {
     const message = created.data?.error?.message || 'Could not start card payment';
     console.error('Stripe Checkout session failed', created.status);
@@ -388,7 +443,7 @@ export async function handleCreateCheckoutSession(request, env) {
   return json({ url: created.data.url });
 }
 
-function timingSafeEqual(a, b) {
+export function timingSafeEqual(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
   let out = 0;
   for (let i = 0; i < a.length; i++) out |= a.charCodeAt(i) ^ b.charCodeAt(i);
@@ -453,6 +508,16 @@ export async function handleStripeWebhook(request, env) {
     return json({ error: 'Invalid payload' }, 400);
   }
 
+  if (event?.type === 'account.updated') {
+    try {
+      await syncStripeConnectedAccount(env, event.data?.object || {});
+    } catch (err) {
+      console.error('Could not save Stripe account status', err?.message || err);
+      return json({ error: 'Could not record account' }, 500);
+    }
+    return json({ received: true });
+  }
+
   if (event?.type !== 'checkout.session.completed') return json({ received: true });
   const session = event.data?.object || {};
   if (session.payment_status !== 'paid') return json({ received: true });
@@ -460,6 +525,11 @@ export async function handleStripeWebhook(request, env) {
   const invoiceId = session.metadata?.invoiceId || session.client_reference_id;
   if (!isSafeDocId(invoiceId)) {
     console.error('Webhook missing invoice id');
+    return json({ received: true });
+  }
+  const connectedAccount = typeof event.account === 'string' ? event.account : '';
+  if (!/^acct_[A-Za-z0-9]+$/.test(connectedAccount)) {
+    console.error('Checkout webhook missing connected account');
     return json({ received: true });
   }
 
@@ -473,12 +543,23 @@ export async function handleStripeWebhook(request, env) {
       return json({ received: true });
     }
     if (invoice.status === 'paid') return json({ received: true });
+    const company = await getFirestoreDoc(env, 'companies', invoice.userId);
+    if (!company || company.stripeConnectedAccountId !== connectedAccount) {
+      console.error('Checkout webhook account does not match company');
+      return json({ received: true });
+    }
+    const currency = String(invoice.currency || 'CAD').trim().toUpperCase();
+    const expected = minorUnits(invoice.total, currency);
+    if (expected == null || session.amount_total !== expected || String(session.currency || '').toUpperCase() !== currency) {
+      console.error('Checkout webhook amount does not match invoice');
+      return json({ received: true });
+    }
 
     const paidAt = new Date().toISOString();
     await patchFirestoreDoc(env, 'invoices', invoiceId, {
       status: { stringValue: 'paid' },
       paidAt: { stringValue: paidAt },
-      paymentMethod: { stringValue: 'card' },
+      paymentMethod: { stringValue: 'stripe' },
       paymentReference: { stringValue: reference },
       updatedAt: { stringValue: paidAt },
     });

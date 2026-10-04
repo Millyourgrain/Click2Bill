@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Building,
   Mail,
@@ -14,6 +14,7 @@ import {
 import { saveCompanyInfo, getOwnCompanyDocument, uploadBinaryForSetup } from '../../services/companyService';
 import { sendEmail } from '../../services/emailService';
 import { useAuth } from '../../contexts/AuthContext';
+import { startStripeConnect, refreshStripeConnect } from '../../services/paymentService';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -197,6 +198,7 @@ function acknowledgementCopy(role) {
 
 function CompanySetup() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { currentUser, refreshUserData } = useAuth();
   const [formData, setFormData] = useState({
     businessStructure: '',
@@ -245,12 +247,58 @@ function CompanySetup() {
   ]);
   const [wizardStep, setWizardStep] = useState(0);
   const [interacEmailDifferent, setInteracEmailDifferent] = useState(null);
+  const [connectBusy, setConnectBusy] = useState(false);
+  const [stripeReady, setStripeReady] = useState(false);
+  const [stripePending, setStripePending] = useState(false);
 
   useEffect(() => {
     if (currentUser?.organizationOwnerId) {
       navigate('/dashboard', { replace: true });
     }
   }, [currentUser?.organizationOwnerId, navigate]);
+
+  useEffect(() => {
+    const flag = searchParams.get('stripe');
+    if (!flag || !currentUser?.uid || currentUser.organizationOwnerId) return undefined;
+    let cancelled = false;
+    (async () => {
+      setConnectBusy(true);
+      setError('');
+      if (flag === 'refresh') {
+        const started = await startStripeConnect();
+        if (cancelled) return;
+        if (started.success && started.url) {
+          window.location.assign(started.url);
+          return;
+        }
+        setConnectBusy(false);
+        setError(started.error || 'Could not open Stripe');
+      } else if (flag === 'return') {
+        const refreshed = await refreshStripeConnect();
+        if (cancelled) return;
+        setConnectBusy(false);
+        if (!refreshed.success) {
+          setError(refreshed.error || 'Could not refresh Stripe');
+        } else if (refreshed.ready) {
+          setStripeReady(true);
+          setStripePending(false);
+          setSuccess('Stripe is connected. Card payments deposit to the bank account you linked in Stripe.');
+        } else {
+          setStripeReady(false);
+          setStripePending(true);
+          setSuccess('Stripe has your details and is finishing its review. Pay now turns on when Stripe enables charges and payouts.');
+        }
+      }
+      if (!cancelled) {
+        setSearchParams((prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete('stripe');
+          return next;
+        }, { replace: true });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [searchParams, currentUser?.uid, currentUser?.organizationOwnerId, setSearchParams]);
 
   useEffect(() => {
     if (!currentUser?.uid) return;
@@ -279,6 +327,10 @@ function CompanySetup() {
         });
         setLogoPreview(d.logoUrl || null);
         setIsEditing(true);
+        if (!searchParams.get('stripe')) {
+          setStripeReady(d.stripeChargesEnabled === true && d.stripePayoutsEnabled === true);
+          setStripePending(!!d.stripeConnectedAccountId && !(d.stripeChargesEnabled === true && d.stripePayoutsEnabled === true));
+        }
         const loginEmail = (currentUser?.email || '').toLowerCase().trim();
         const savedInteracEmail = (d.interacEmail || '').toLowerCase().trim();
         if (savedInteracEmail && savedInteracEmail !== loginEmail) {
@@ -850,26 +902,42 @@ function CompanySetup() {
                   </div>
 
                   <div style={{ marginTop: '20px' }}>
-                    <div style={{ fontWeight: '700', fontSize: '14px', color: 'var(--navy)', marginBottom: '6px' }}>6c. Online card payment — optional</div>
+                    <div style={{ fontWeight: '700', fontSize: '14px', color: 'var(--navy)', marginBottom: '6px' }}>6c. Online card payment — Stripe Connect</div>
                     <p style={{ fontSize: '13px', color: '#555', marginTop: 0, marginBottom: '12px' }}>
-                      Customers pay on Stripe’s hosted page. Click2Bill does not collect or store card numbers. Direct deposit and Interac e-Transfer stay available. No Stripe secret is saved on this form.
+                      Connect this company’s own Stripe account. Customers pay the invoice total on Stripe. Stripe deposits the payment, after its own card fee, to the bank account this company links during Stripe signup. Click2Bill does not see card numbers and does not take a fee from the payment.
                     </p>
-                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: isMakerOnly ? 'not-allowed' : 'pointer', opacity: isMakerOnly ? 0.6 : 1 }}>
-                      <input
-                        type="checkbox"
-                        name="onlineCardPaymentEnabled"
-                        checked={!!formData.onlineCardPaymentEnabled}
-                        onChange={handleChange}
-                        disabled={isMakerOnly}
-                        style={{ marginTop: '3px' }}
-                      />
-                      <span style={{ fontSize: '14px', lineHeight: 1.45 }}>Enable online card payment (Stripe Checkout)</span>
-                    </label>
-                    {!!formData.onlineCardPaymentEnabled && (
-                      <p style={{ fontSize: '12px', color: '#166534', marginTop: '8px', marginBottom: 0 }}>
-                        Stripe Checkout is connected for this company. Card details are entered on Stripe, not on Click2Bill.
+                    {stripeReady && (
+                      <p style={{ fontSize: '13px', color: '#166534', marginTop: 0 }}>
+                        Stripe is connected. Pay now is available on invoices issued after this connection.
                       </p>
                     )}
+                    {stripePending && !stripeReady && (
+                      <p style={{ fontSize: '13px', color: '#7a5f00', marginTop: 0 }}>
+                        Stripe setup is in progress. Pay now turns on when Stripe enables charges and payouts.
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!isEditing) {
+                          setError('Save your company profile before connecting Stripe.');
+                          return;
+                        }
+                        setConnectBusy(true);
+                        setError('');
+                        const started = await startStripeConnect();
+                        if (!started.success || !started.url) {
+                          setConnectBusy(false);
+                          setError(started.error || 'Could not open Stripe');
+                          return;
+                        }
+                        window.location.assign(started.url);
+                      }}
+                      disabled={connectBusy}
+                      style={{ padding: '10px 18px', background: connectBusy ? '#94a3b8' : 'var(--gradient-navy)', color: 'var(--cream)', border: connectBusy ? 'none' : '1px solid var(--gold)', borderRadius: '8px', cursor: connectBusy ? 'not-allowed' : 'pointer', fontWeight: 600 }}
+                    >
+                      {connectBusy ? 'Opening Stripe…' : (stripeReady ? 'Update Stripe account' : 'Connect Stripe')}
+                    </button>
                   </div>
                 </>
               );

@@ -768,7 +768,7 @@ export const getCashCollected = async () => {
     const paid = (res.data || []).filter((i) => i.status === 'paid');
     const totalCollected = paid.reduce((s, i) => s + (i.total || 0), 0);
     const collectedByCurrency = totalsByCurrency(paid);
-    const byMethod = { cash: 0, interac: 0, eft_pad: 0, card: 0, other: 0 };
+    const byMethod = { cash: 0, interac: 0, eft_pad: 0, card: 0, helcim: 0, stripe: 0, other: 0 };
     const byMethodByCurrency = {};
     paid.forEach((inv) => {
       const amt = inv.total || 0;
@@ -779,9 +779,11 @@ export const getCashCollected = async () => {
       else if (m === 'interac') key = 'interac';
       else if (m === 'eft_pad' || m === 'eft/pad') key = 'eft_pad';
       else if (m === 'card') key = 'card';
+      else if (m === 'helcim') key = 'helcim';
+      else if (m === 'stripe') key = 'stripe';
       byMethod[key] += amt;
       if (!byMethodByCurrency[cur]) {
-        byMethodByCurrency[cur] = { cash: 0, interac: 0, eft_pad: 0, card: 0, other: 0 };
+        byMethodByCurrency[cur] = { cash: 0, interac: 0, eft_pad: 0, card: 0, helcim: 0, stripe: 0, other: 0 };
       }
       byMethodByCurrency[cur][key] += amt;
     });

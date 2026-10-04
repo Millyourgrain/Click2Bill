@@ -103,6 +103,7 @@ export const saveInvoice = async (invoiceData) => {
       bankTransitNumber: invoiceData.bankTransitNumber || '',
       bankInstitutionNumber: invoiceData.bankInstitutionNumber || '',
       bankAccountNumber: invoiceData.bankAccountNumber || '',
+      onlineCardPaymentEnabled: invoiceData.onlineCardPaymentEnabled === true,
       deliveryMethod: invoiceData.deliveryMethod || null,
       reminderEnabled: invoiceData.reminderEnabled || false,
       reminderFrequency: invoiceData.reminderFrequency || null,
@@ -767,16 +768,24 @@ export const getCashCollected = async () => {
     const paid = (res.data || []).filter((i) => i.status === 'paid');
     const totalCollected = paid.reduce((s, i) => s + (i.total || 0), 0);
     const collectedByCurrency = totalsByCurrency(paid);
-    const byMethod = { cash: 0, interac: 0, eft_pad: 0, other: 0 };
+    const byMethod = { cash: 0, interac: 0, eft_pad: 0, card: 0, other: 0 };
+    const byMethodByCurrency = {};
     paid.forEach((inv) => {
       const amt = inv.total || 0;
+      const cur = inv.currency || 'CAD';
       const m = (inv.paymentMethod || 'other').toLowerCase();
-      if (m === 'cash') byMethod.cash += amt;
-      else if (m === 'interac') byMethod.interac += amt;
-      else if (m === 'eft_pad' || m === 'eft/pad') byMethod.eft_pad += amt;
-      else byMethod.other += amt;
+      let key = 'other';
+      if (m === 'cash') key = 'cash';
+      else if (m === 'interac') key = 'interac';
+      else if (m === 'eft_pad' || m === 'eft/pad') key = 'eft_pad';
+      else if (m === 'card') key = 'card';
+      byMethod[key] += amt;
+      if (!byMethodByCurrency[cur]) {
+        byMethodByCurrency[cur] = { cash: 0, interac: 0, eft_pad: 0, card: 0, other: 0 };
+      }
+      byMethodByCurrency[cur][key] += amt;
     });
-    return { success: true, totalCollected, collectedByCurrency, byMethod, data: paid };
+    return { success: true, totalCollected, collectedByCurrency, byMethod, byMethodByCurrency, data: paid };
   } catch (error) {
     console.error('Get cash collected error:', error);
     return { success: false, totalCollected: 0, collectedByCurrency: {}, byMethod: {}, data: [] };
@@ -959,11 +968,14 @@ export const issueInvoiceToCustomer = async (invoiceId) => {
     return { success: false, error: 'Invoice was returned to the maker for changes. It must be resubmitted first.' };
   }
   const portalToken = data.portalToken || generateInvoicePortalToken();
+  const companySnap = await getDoc(doc(db, 'companies', ctx.billingUserId));
+  const onlineCardPaymentEnabled = companySnap.exists() && companySnap.data().onlineCardPaymentEnabled === true;
   await updateDoc(ref, {
     status: 'sent',
     approvalState: 'issued',
     issuedAt: new Date().toISOString(),
     portalToken,
+    onlineCardPaymentEnabled,
     lastUpdatedByUid: ctx.uid,
     updatedAt: new Date().toISOString(),
   });

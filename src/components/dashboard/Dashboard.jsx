@@ -22,6 +22,22 @@ import DashboardCustomersTab from './DashboardCustomersTab';
 import { formatInvoiceMoney, DEFAULT_INVOICE_CURRENCY, formatTotalsByCurrencyLines, totalsByCurrency, INVOICE_CURRENCY_OPTIONS } from '../../utils/invoiceCurrency';
 import { sendEmail } from '../../services/emailService';
 
+function collectedMethodLine(byMethodByCurrency, code) {
+  const methods = byMethodByCurrency?.[code];
+  if (!methods) return '';
+  const labels = [
+    ['card', 'Card'],
+    ['interac', 'Interac'],
+    ['eft_pad', 'EFT/PAD'],
+    ['cash', 'Cash'],
+    ['other', 'Other'],
+  ];
+  return labels
+    .filter(([key]) => Number(methods[key]) > 0)
+    .map(([key, label]) => `${label} ${formatInvoiceMoney(methods[key], code)}`)
+    .join(' · ');
+}
+
 /** Worker / Agency dashboard only. Customers are redirected to customer dashboard. */
 function Dashboard() {
   const navigate = useNavigate();
@@ -622,6 +638,7 @@ function Dashboard() {
             const revenue = revenueByCurrency[code] || 0;
             const arAmt = arOutstandingMap[code] || 0;
             const cashAmt = cashMap[code] || 0;
+            const methodLine = collectedMethodLine(cashCollected?.byMethodByCurrency, code);
             const showArCash = persona !== 'checker';
             return (
               <div key={code} style={{ marginBottom: overviewCurrency === 'all' ? '28px' : '0' }}>
@@ -657,6 +674,9 @@ function Dashboard() {
                       <div>
                         <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 3px 0', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Collected ({code})</p>
                         <p style={{ fontSize: '22px', fontWeight: '700', margin: 0, color: 'var(--text-primary)', lineHeight: 1.1 }}>{formatInvoiceMoney(cashAmt, code)}</p>
+                        {methodLine && (
+                          <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '6px 0 0 0', lineHeight: 1.4 }}>{methodLine}</p>
+                        )}
                       </div>
                     </div>
                   )}

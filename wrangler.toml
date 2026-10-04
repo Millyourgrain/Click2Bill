@@ -61,6 +61,15 @@ not_found_handling = "single-page-application"
 # RESEND_API_KEY — set as a secret (never put in this file):
 #   npx wrangler secret put RESEND_API_KEY
 #
+# Stripe Checkout (hosted). Secrets — never put keys in this file or in Firestore:
+#   npx wrangler secret put STRIPE_SECRET_KEY
+#   npx wrangler secret put STRIPE_WEBHOOK_SECRET
+# Webhook path: POST /api/stripe-webhook  (event checkout.session.completed)
+# The Worker marks the invoice paid in Firestore with a service account (REST, not firebase-admin):
+#   FIREBASE_PROJECT_ID and FIREBASE_CLIENT_EMAIL as plain vars
+#   npx wrangler secret put FIREBASE_PRIVATE_KEY
+# Online card payment is enabled per company in setup. See DEPLOY-CLOUDFLARE.md.
+#
 # Optional sender domain: set FROM_EMAIL in Cloudflare dashboard (Worker settings → Variables)
 # or uncomment [vars] FROM_EMAIL below after Resend verifies your domain.
 # ---------------------------------------------------------------------------

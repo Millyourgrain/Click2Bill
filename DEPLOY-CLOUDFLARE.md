@@ -40,6 +40,38 @@ See comments at the top of **`wrangler.toml`** for the full production checklist
 
 ---
 
+## Online card payments (Stripe Checkout)
+
+Click2Bill does not collect, store, or transmit card numbers. When a company turns on **Online card payment**, the customer is sent to **Stripe-hosted Checkout**. Stripe settles the card payment. This worker creates the Checkout Session from the invoice total in Firestore and, when Stripe sends a signed `checkout.session.completed` event with `payment_status` `paid`, marks that invoice paid (`paymentMethod` `card`).
+
+Direct deposit (section 6a) and Interac e-Transfer (section 6b) stay as manual options. Enabling online pay is **per company**: an Authorized Signatory, Admin, or Checker turns it on in company setup. Makers cannot. No Stripe secret is stored in Firestore.
+
+**Worker secrets** (dashboard or Wrangler — never in the browser, git, or Firestore):
+
+```bash
+npx wrangler secret put STRIPE_SECRET_KEY
+npx wrangler secret put STRIPE_WEBHOOK_SECRET
+npx wrangler secret put FIREBASE_PRIVATE_KEY
+```
+
+**Worker variables** (Settings → Variables), required so the webhook can update Firestore. The Worker calls the Firestore REST API with a Google service account. `firebase-admin` is not used on Cloudflare.
+
+| Variable | Purpose |
+| --- | --- |
+| `FIREBASE_PROJECT_ID` | Firebase project id |
+| `FIREBASE_CLIENT_EMAIL` | Service account client email |
+| `FIREBASE_PRIVATE_KEY` | Service account `private_key` (PKCS8, `-----BEGIN PRIVATE KEY-----`). `\n` escapes are accepted. Set as a **secret**. |
+
+**Webhook URL:** `https://<your-worker-host>/api/stripe-webhook`
+
+In the Stripe Dashboard → Developers → Webhooks, send `checkout.session.completed` to that path and use the signing secret as `STRIPE_WEBHOOK_SECRET`.
+
+No `VITE_` Stripe key is required. The browser only receives a Checkout URL from `POST /api/create-checkout-session`.
+
+Local secrets go in `.dev.vars` (see `dev.vars.example`). Stripe CLI can forward webhooks to `http://localhost:8787/api/stripe-webhook`.
+
+---
+
 ## Rules on Firebase
 
 Publish **`firestore.rules`** and **`storage.rules`** from this repo (Firebase Console → Firestore / Storage → Rules).

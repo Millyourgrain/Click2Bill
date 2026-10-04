@@ -135,7 +135,10 @@ service cloud.firestore {
           'lastUpdatedByUid',
         ]);
       let approve = d.hasOnly(['approvalState', 'checkerApprovedAt', 'updatedAt', 'lastUpdatedByUid']);
-      let issue = d.hasOnly(['status', 'approvalState', 'issuedAt', 'portalToken', 'updatedAt', 'lastUpdatedByUid']);
+      let issue = (
+        (!('onlineCardPaymentEnabled' in request.resource.data) || request.resource.data.onlineCardPaymentEnabled is bool)
+        && d.hasOnly(['status', 'approvalState', 'issuedAt', 'portalToken', 'onlineCardPaymentEnabled', 'updatedAt', 'lastUpdatedByUid'])
+      );
       let returnToMaker = resource.data.approvalState == 'pending_checker'
         && request.resource.data.approvalState == 'returned_to_maker'
         && request.resource.data.status == resource.data.status

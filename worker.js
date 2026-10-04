@@ -1,7 +1,10 @@
 /**
- * Cloudflare Worker - handles /api/send-email and serves static assets
- * Requires: RESEND_API_KEY (secret), FIREBASE_API_KEY (var)
+ * Cloudflare Worker - handles /api/send-email, Stripe Checkout, and static assets.
+ * Requires: RESEND_API_KEY (secret), FIREBASE_API_KEY (var).
+ * Card payments: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, plus Firestore service-account vars
+ * (FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY). See DEPLOY-CLOUDFLARE.md.
  */
+import { handleCreateCheckoutSession, handleStripeWebhook } from './workerPayments.js';
 const RESEND_API = 'https://api.resend.com/emails';
 const FIREBASE_VERIFY_URL = 'https://identitytoolkit.googleapis.com/v1/accounts:lookup';
 
@@ -192,6 +195,14 @@ export default {
       const url = new URL(request.url);
       if (url.pathname === '/api/send-email' && request.method === 'POST') {
         return handleSendEmail(request, env);
+      }
+
+      if (url.pathname === '/api/create-checkout-session' && request.method === 'POST') {
+        return handleCreateCheckoutSession(request, env);
+      }
+
+      if (url.pathname === '/api/stripe-webhook' && request.method === 'POST') {
+        return handleStripeWebhook(request, env);
       }
 
       if (url.pathname === '/api/inline-image') {

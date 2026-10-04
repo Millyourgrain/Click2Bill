@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, XCircle, Download } from 'lucide-react';
+import { ArrowLeft, CheckCircle, XCircle, Download, CreditCard } from 'lucide-react';
 import {
   getInvoiceForCustomer,
   updateInvoiceStatus,
@@ -11,6 +11,7 @@ import { notifyInvoiceOrgMembers } from '../../services/notificationService';
 import { DEFAULT_INVOICE_CURRENCY } from '../../utils/invoiceCurrency';
 import { downloadStoredInvoicePdf } from '../../utils/invoicePdf';
 import StoredInvoicePreview from '../invoice/StoredInvoicePreview';
+import { createCheckoutSession } from '../../services/paymentService';
 
 /**
  * @param {{ publicPortal?: boolean }} props
@@ -30,6 +31,7 @@ function CustomerInvoiceView({ publicPortal = false }) {
   const [success, setSuccess] = useState('');
   const [paymentRef, setPaymentRef] = useState('');
   const [confirmingPayment, setConfirmingPayment] = useState(false);
+  const [paying, setPaying] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
 
   const patchStatus = async (updates) => {
@@ -99,6 +101,15 @@ function CustomerInvoiceView({ publicPortal = false }) {
   useEffect(() => {
     loadInvoice();
   }, [loadInvoice]);
+
+  useEffect(() => {
+    if (searchParams.get('paid') !== '1' || !invoice) return;
+    const paidMsg = invoice.status === 'paid'
+      ? 'Card payment received. This invoice is marked paid.'
+      : 'Card payment received. It is being confirmed and will show as paid shortly.';
+    const processingMsg = 'Card payment received. It is being confirmed and will show as paid shortly.';
+    setSuccess((prev) => (prev && prev !== processingMsg && prev !== paidMsg ? prev : paidMsg));
+  }, [searchParams, invoice]);
 
   const handleAccept = async () => {
     setAction('accept');
@@ -188,6 +199,26 @@ function CustomerInvoiceView({ publicPortal = false }) {
 
   const canAcceptOrContest = invoice?.status === 'sent' || invoice?.status === 'viewed';
   const canConfirmPayment = invoice?.status === 'accepted' && !invoice?.paidAt;
+  const canPayOnline = ['sent', 'viewed', 'accepted', 'overdue'].includes(invoice?.status)
+    && !invoice?.paidAt
+    && Number(invoice?.total) > 0
+    && invoice?.onlineCardPaymentEnabled === true;
+
+  const handlePayNow = async () => {
+    if (!invoice || paying) return;
+    setPaying(true);
+    setError('');
+    const result = await createCheckoutSession({
+      invoiceId,
+      portalToken: publicPortal ? urlToken : undefined,
+    });
+    if (!result.success || !result.url) {
+      setPaying(false);
+      setError(result.error || 'Could not start card payment');
+      return;
+    }
+    window.location.assign(result.url);
+  };
 
   const handleConfirmPayment = async (e) => {
     e.preventDefault();
@@ -275,6 +306,18 @@ function CustomerInvoiceView({ publicPortal = false }) {
             <div style={{ marginTop: '24px', padding: '16px', background: '#fef3c7', borderRadius: '8px' }}>
               <strong>Your comment (sent to issuer):</strong>
               <p style={{ margin: '8px 0 0 0', fontSize: '14px' }}>{inv.customerCommentary}</p>
+            </div>
+          )}
+
+          {canPayOnline && (
+            <div style={{ marginTop: '24px', padding: '20px', background: 'var(--cream-dark)', borderRadius: '12px', border: '1px solid var(--gold)' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px' }}>Pay now</h3>
+              <p style={{ fontSize: '14px', color: '#64748b', marginBottom: '12px' }}>
+                Pay this invoice by card on Stripe’s secure page. Click2Bill does not see your card number. Direct deposit and Interac e-Transfer remain available.
+              </p>
+              <button type="button" onClick={handlePayNow} disabled={paying} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '12px 20px', background: paying ? '#94a3b8' : 'var(--gradient-navy)', color: 'var(--cream)', border: paying ? 'none' : '1px solid var(--gold)', borderRadius: '8px', cursor: paying ? 'not-allowed' : 'pointer', fontWeight: '600' }}>
+                <CreditCard size={18} /> {paying ? 'Opening Stripe…' : 'Pay now'}
+              </button>
             </div>
           )}
 

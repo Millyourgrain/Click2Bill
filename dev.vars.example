@@ -13,3 +13,13 @@ FROM_EMAIL=Click2Bill <invoices@click2bill.ca>
 # Reply-To address — customer replies land here.
 # Set up click2bill.ca email forwarding: support@click2bill.ca → click2Bill.ca@gmail.com
 REPLY_TO_EMAIL=Click2Bill Support <support@click2bill.ca>
+
+# Stripe Checkout. Placeholders only — replace for local `wrangler dev`. Never commit .dev.vars.
+STRIPE_SECRET_KEY=sk_test_placeholder
+STRIPE_WEBHOOK_SECRET=whsec_placeholder
+
+# Firestore writes from this Worker (service account). Not sent to the browser.
+# FIREBASE_PRIVATE_KEY is the JSON private_key (PKCS8). \n escapes are accepted.
+FIREBASE_PROJECT_ID=
+FIREBASE_CLIENT_EMAIL=
+FIREBASE_PRIVATE_KEY=

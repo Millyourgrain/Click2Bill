@@ -43,6 +43,8 @@ export const saveCompanyInfo = async (companyData) => {
       bankTransitNumber: companyData.bankTransitNumber || '',
       bankInstitutionNumber: companyData.bankInstitutionNumber || '',
       bankAccountNumber: companyData.bankAccountNumber || '',
+      onlineCardPaymentEnabled: companyData.onlineCardPaymentEnabled === true,
+      stripeCheckoutConnected: companyData.onlineCardPaymentEnabled === true,
       invoiceSystem: companyData.invoiceSystem || '',
       userTransactionRole: companyData.userTransactionRole || '',
       eInvoiceIssuerName: companyData.eInvoiceIssuerName || '',

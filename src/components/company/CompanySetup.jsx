@@ -215,6 +215,7 @@ function CompanySetup() {
     bankInstitutionNumber: '',
     bankAccountNumber: '',
     interacEmail: '',
+    onlineCardPaymentEnabled: false,
     invoiceSystem: '',
     userTransactionRole: '',
     eInvoiceIssuerName: '',
@@ -845,6 +846,29 @@ function CompanySetup() {
                           <p style={{ fontSize: '12px', color: '#777', marginTop: '6px' }}>Using your sign-in email: {loginEmail}</p>
                         )}
                       </div>
+                    )}
+                  </div>
+
+                  <div style={{ marginTop: '20px' }}>
+                    <div style={{ fontWeight: '700', fontSize: '14px', color: 'var(--navy)', marginBottom: '6px' }}>6c. Online card payment — optional</div>
+                    <p style={{ fontSize: '13px', color: '#555', marginTop: 0, marginBottom: '12px' }}>
+                      Customers pay on Stripe’s hosted page. Click2Bill does not collect or store card numbers. Direct deposit and Interac e-Transfer stay available. No Stripe secret is saved on this form.
+                    </p>
+                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: isMakerOnly ? 'not-allowed' : 'pointer', opacity: isMakerOnly ? 0.6 : 1 }}>
+                      <input
+                        type="checkbox"
+                        name="onlineCardPaymentEnabled"
+                        checked={!!formData.onlineCardPaymentEnabled}
+                        onChange={handleChange}
+                        disabled={isMakerOnly}
+                        style={{ marginTop: '3px' }}
+                      />
+                      <span style={{ fontSize: '14px', lineHeight: 1.45 }}>Enable online card payment (Stripe Checkout)</span>
+                    </label>
+                    {!!formData.onlineCardPaymentEnabled && (
+                      <p style={{ fontSize: '12px', color: '#166534', marginTop: '8px', marginBottom: 0 }}>
+                        Stripe Checkout is connected for this company. Card details are entered on Stripe, not on Click2Bill.
+                      </p>
                     )}
                   </div>
                 </>

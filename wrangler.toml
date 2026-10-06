@@ -33,6 +33,8 @@
 
 name = "click2bill"
 main = "worker.js"
+# Dashboard variables (Stripe key, Firebase ids) are not in this file. Keep them across deploys.
+keep_vars = true
 # 2025-04-01+ enables navigation requests to prefer static assets (SPA index.html) without always invoking this Worker — fewer edge failures. See:
 # https://developers.cloudflare.com/workers/static-assets/routing/single-page-application/
 compatibility_date = "2025-04-01"

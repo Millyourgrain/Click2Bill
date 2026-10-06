@@ -84,9 +84,11 @@ not_found_handling = "single-page-application"
 #
 # Optional sender domain: set FROM_EMAIL in Cloudflare dashboard (Worker settings → Variables)
 # or uncomment [vars] FROM_EMAIL below after Resend verifies your domain.
+#
+# Do not put FIREBASE_API_KEY in [vars]. A placeholder here is uploaded on every
+# `wrangler deploy` and replaces the real key, so Connect Stripe returns 401.
+# Set it in the Worker dashboard to the same value as VITE_FIREBASE_API_KEY.
 # ---------------------------------------------------------------------------
-[vars]
-FIREBASE_API_KEY = "PASTE_YOUR_FIREBASE_WEB_API_KEY_HERE"
 
 # ── Email sender identity ───────────────────────────────────────────────────
 # FROM_EMAIL  : The visible "From" address on every outgoing email.

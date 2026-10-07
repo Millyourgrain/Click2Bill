@@ -55,6 +55,13 @@ async function stripeGetAccount(env, accountId) {
   return { ok: res.ok, status: res.status, data };
 }
 
+function stripeErrorMessage(data, fallback) {
+  const message = data?.error?.message;
+  if (typeof message !== 'string') return fallback;
+  const clean = message.replace(/\s+/g, ' ').trim().slice(0, 300);
+  return clean || fallback;
+}
+
 function accountLinkUrls(origin) {
   const base = `${origin}/setup-company`;
   return {
@@ -92,8 +99,12 @@ export async function handleStripeConnectOnboarding(request, env) {
   let accountId = typeof company.stripeConnectedAccountId === 'string' ? company.stripeConnectedAccountId : '';
   if (!/^acct_[A-Za-z0-9]+$/.test(accountId)) {
     const params = new URLSearchParams();
-    params.set('type', 'express');
     params.set('country', 'CA');
+    // Express dashboard, company pays Stripe's card fee, Stripe covers negative balances.
+    // type=express makes Click2Bill liable for losses and Stripe blocks creation until that review is saved.
+    params.set('controller[stripe_dashboard][type]', 'express');
+    params.set('controller[fees][payer]', 'account');
+    params.set('controller[losses][payments]', 'stripe');
     params.set('capabilities[card_payments][requested]', 'true');
     params.set('capabilities[transfers][requested]', 'true');
     params.set('metadata[click2billCompanyId]', companyId);
@@ -104,8 +115,8 @@ export async function handleStripeConnectOnboarding(request, env) {
 
     const created = await stripePost(env, '/accounts', params);
     if (!created.ok || !/^acct_[A-Za-z0-9]+$/.test(created.data?.id || '')) {
-      console.error('Stripe Connect account create failed', created.status);
-      return json({ error: 'Could not start Stripe Connect.' }, 502);
+      console.error('Stripe Connect account create failed', created.status, created.data?.error?.code || '');
+      return json({ error: stripeErrorMessage(created.data, 'Could not start Stripe Connect.') }, 502);
     }
     accountId = created.data.id;
     try {
@@ -130,8 +141,8 @@ export async function handleStripeConnectOnboarding(request, env) {
   linkParams.set('type', 'account_onboarding');
   const link = await stripePost(env, '/account_links', linkParams);
   if (!link.ok || !link.data?.url) {
-    console.error('Stripe Account Link failed', link.status);
-    return json({ error: 'Could not open Stripe.' }, 502);
+    console.error('Stripe Account Link failed', link.status, link.data?.error?.code || '');
+    return json({ error: stripeErrorMessage(link.data, 'Could not open Stripe.') }, 502);
   }
   return json({ url: link.data.url });
 }

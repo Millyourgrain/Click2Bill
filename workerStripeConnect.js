@@ -104,9 +104,9 @@ export async function handleStripeConnectOnboarding(request, env) {
   if (!/^acct_[A-Za-z0-9]+$/.test(accountId)) {
     const params = new URLSearchParams();
     params.set('country', 'CA');
-    // Express dashboard, company pays Stripe's card fee, Stripe covers negative balances.
-    // type=express makes Click2Bill liable for losses and Stripe blocks creation until that review is saved.
-    params.set('controller[stripe_dashboard][type]', 'express');
+    // Full Stripe dashboard. The company pays Stripe's card fee and Stripe covers negative balances.
+    // Express dashboard is rejected unless Click2Bill collects fees and is liable for chargebacks.
+    params.set('controller[stripe_dashboard][type]', 'full');
     params.set('controller[fees][payer]', 'account');
     params.set('controller[losses][payments]', 'stripe');
     params.set('capabilities[card_payments][requested]', 'true');

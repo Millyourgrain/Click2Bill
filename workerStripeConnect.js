@@ -1,6 +1,6 @@
 /**
  * Stripe Connect onboarding for the company that issues invoices.
- * Click2Bill creates an Express account and sends the company to Stripe.
+ * Click2Bill creates a v2 merchant account and sends the company to Stripe.
  * Card payments are direct charges on that account, so Stripe deposits to the company's bank.
  */
 import {
@@ -15,6 +15,8 @@ import {
 } from './workerPayments.js';
 
 const STRIPE_API = 'https://api.stripe.com/v1';
+const STRIPE_V2_ACCOUNTS = 'https://api.stripe.com/v2/core/accounts';
+const STRIPE_VERSION = '2026-09-30.endive';
 
 function stripeReady(env) {
   return !!env.STRIPE_SECRET_KEY && String(env.STRIPE_SECRET_KEY).startsWith('sk_');
@@ -47,6 +49,20 @@ async function stripePost(env, path, params) {
   return { ok: res.ok, status: res.status, data };
 }
 
+async function stripeCreateConnectedAccount(env, body) {
+  const res = await fetch(STRIPE_V2_ACCOUNTS, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
+      'Content-Type': 'application/json',
+      'Stripe-Version': STRIPE_VERSION,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
+}
+
 async function stripeGetAccount(env, accountId) {
   const res = await fetch(`${STRIPE_API}/accounts/${accountId}`, {
     headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` },
@@ -57,7 +73,7 @@ async function stripeGetAccount(env, accountId) {
 
 function stripeErrorMessage(data, status, fallback) {
   const message = typeof data?.error?.message === 'string'
-    ? data.error.message.replace(/\s+/g, ' ').trim().slice(0, 300)
+    ? data.error.message.replace(/\s+/g, ' ').trim().slice(0, 500)
     : '';
   const code = typeof data?.error?.code === 'string' ? data.error.code.slice(0, 80) : '';
   const parts = [message || fallback];
@@ -102,22 +118,33 @@ export async function handleStripeConnectOnboarding(request, env) {
 
   let accountId = typeof company.stripeConnectedAccountId === 'string' ? company.stripeConnectedAccountId : '';
   if (!/^acct_[A-Za-z0-9]+$/.test(accountId)) {
-    const params = new URLSearchParams();
-    params.set('country', 'CA');
-    // Full Stripe dashboard. The company pays Stripe's card fee and Stripe covers negative balances.
-    // Express dashboard is rejected unless Click2Bill collects fees and is liable for chargebacks.
-    params.set('controller[stripe_dashboard][type]', 'full');
-    params.set('controller[fees][payer]', 'account');
-    params.set('controller[losses][payments]', 'stripe');
-    params.set('capabilities[card_payments][requested]', 'true');
-    params.set('capabilities[transfers][requested]', 'true');
-    params.set('metadata[click2billCompanyId]', companyId);
     const email = String(owner.user.email || company.email || '').trim();
-    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) params.set('email', email);
     const name = String(company.legalBusinessName || company.companyName || '').replace(/[\r\n]/g, ' ').slice(0, 100);
-    if (name) params.set('business_profile[name]', name);
+    const body = {
+      dashboard: 'full',
+      identity: { country: 'ca' },
+      configuration: {
+        merchant: {
+          capabilities: {
+            card_payments: { requested: true },
+          },
+        },
+      },
+      defaults: {
+        responsibilities: {
+          fees_collector: 'stripe',
+          losses_collector: 'stripe',
+        },
+      },
+      metadata: { click2billCompanyId: companyId },
+    };
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) body.contact_email = email;
+    if (name) {
+      body.display_name = name;
+      body.identity.business_details = { registered_name: name };
+    }
 
-    const created = await stripePost(env, '/accounts', params);
+    const created = await stripeCreateConnectedAccount(env, body);
     if (!created.ok || !/^acct_[A-Za-z0-9]+$/.test(created.data?.id || '')) {
       console.error('Stripe Connect account create failed', created.status, created.data?.error?.code || '');
       return json({ error: stripeErrorMessage(created.data, created.status, 'Could not start Stripe Connect.') }, 502);

@@ -109,6 +109,26 @@ async function authedPost(path) {
   return { ok: res.ok, data };
 }
 
+/** Whether this invoice can be paid by card on the company's connected Stripe account. */
+export async function cardPaymentAvailable({ invoiceId, portalToken }) {
+  try {
+    const res = await fetch(`${getApiBase()}/api/card-payment-available`, {
+      method: 'POST',
+      headers: await paymentHeaders(),
+      body: JSON.stringify({
+        invoiceId,
+        ...(portalToken ? { portalToken } : {}),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { success: false, available: false };
+    return { success: true, available: data.available === true };
+  } catch (e) {
+    console.error('cardPaymentAvailable error:', e);
+    return { success: false, available: false };
+  }
+}
+
 /** Send the company to Stripe Connect onboarding. */
 export async function startStripeConnect() {
   try {

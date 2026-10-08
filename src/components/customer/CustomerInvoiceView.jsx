@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, XCircle, Download, CreditCard } from 'lucide-react';
+import { ArrowLeft, CheckCircle, XCircle, Download, CreditCard, Building2 } from 'lucide-react';
 import {
   getInvoiceForCustomer,
   updateInvoiceStatus,
@@ -11,7 +11,7 @@ import { notifyInvoiceOrgMembers } from '../../services/notificationService';
 import { DEFAULT_INVOICE_CURRENCY } from '../../utils/invoiceCurrency';
 import { downloadStoredInvoicePdf } from '../../utils/invoicePdf';
 import StoredInvoicePreview from '../invoice/StoredInvoicePreview';
-import { createCheckoutSession } from '../../services/paymentService';
+import { cardPaymentAvailable, createCheckoutSession } from '../../services/paymentService';
 
 /**
  * @param {{ publicPortal?: boolean }} props
@@ -33,6 +33,8 @@ function CustomerInvoiceView({ publicPortal = false }) {
   const [confirmingPayment, setConfirmingPayment] = useState(false);
   const [paying, setPaying] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [cardAvailable, setCardAvailable] = useState(false);
+  const [showManualPay, setShowManualPay] = useState(false);
 
   const patchStatus = async (updates) => {
     if (publicPortal) {
@@ -110,6 +112,23 @@ function CustomerInvoiceView({ publicPortal = false }) {
     const processingMsg = 'Card payment received. It is being confirmed and will show as paid shortly.';
     setSuccess((prev) => (prev && prev !== processingMsg && prev !== paidMsg ? prev : paidMsg));
   }, [searchParams, invoice]);
+
+  useEffect(() => {
+    if (!invoice || invoice.paidAt || invoice.status !== 'accepted' || Number(invoice.total) <= 0) {
+      setCardAvailable(false);
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      const result = await cardPaymentAvailable({
+        invoiceId,
+        portalToken: publicPortal ? urlToken : undefined,
+      });
+      if (cancelled) return;
+      setCardAvailable(result.success ? result.available : invoice.onlineCardPaymentEnabled === true);
+    })();
+    return () => { cancelled = true; };
+  }, [invoice, invoiceId, publicPortal, urlToken]);
 
   const handleAccept = async () => {
     setAction('accept');
@@ -198,11 +217,7 @@ function CustomerInvoiceView({ publicPortal = false }) {
   }
 
   const canAcceptOrContest = invoice?.status === 'sent' || invoice?.status === 'viewed';
-  const canConfirmPayment = invoice?.status === 'accepted' && !invoice?.paidAt;
-  const canPayOnline = ['sent', 'viewed', 'accepted', 'overdue'].includes(invoice?.status)
-    && !invoice?.paidAt
-    && Number(invoice?.total) > 0
-    && invoice?.onlineCardPaymentEnabled === true;
+  const canChoosePayment = invoice?.status === 'accepted' && !invoice?.paidAt && Number(invoice?.total) > 0;
 
   const handlePayNow = async () => {
     if (!invoice || paying) return;
@@ -309,28 +324,46 @@ function CustomerInvoiceView({ publicPortal = false }) {
             </div>
           )}
 
-          {canPayOnline && (
+          {canChoosePayment && (
             <div style={{ marginTop: '24px', padding: '20px', background: 'var(--cream-dark)', borderRadius: '12px', border: '1px solid var(--gold)' }}>
               <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px' }}>Pay now</h3>
-              <p style={{ fontSize: '14px', color: '#64748b', marginBottom: '12px' }}>
-                Pay this invoice by card on Stripe. Stripe deposits the payment to the company that sent the invoice. Click2Bill does not receive the card payment or see your card number.
+              <p style={{ fontSize: '14px', color: '#64748b', marginBottom: '16px' }}>
+                Choose how you want to pay this invoice.
               </p>
-              <button type="button" onClick={handlePayNow} disabled={paying} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '12px 20px', background: paying ? '#94a3b8' : 'var(--gradient-navy)', color: 'var(--cream)', border: paying ? 'none' : '1px solid var(--gold)', borderRadius: '8px', cursor: paying ? 'not-allowed' : 'pointer', fontWeight: '600' }}>
-                <CreditCard size={18} /> {paying ? 'Opening Stripe…' : 'Pay now'}
-              </button>
-            </div>
-          )}
-
-          {canConfirmPayment && (
-            <div style={{ marginTop: '24px', padding: '20px', background: 'var(--cream-dark)', borderRadius: '12px', border: '1px solid var(--gold)' }}>
-              <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '12px' }}>Confirm payment</h3>
-              <p style={{ fontSize: '14px', color: '#64748b', marginBottom: '12px' }}>Have you paid? Confirm below (optional: add transaction reference). The issuer will be notified.</p>
-              <form onSubmit={handleConfirmPayment}>
-                <input type="text" value={paymentRef} onChange={(e) => setPaymentRef(e.target.value)} placeholder="Transaction reference (optional)" style={{ width: '100%', maxWidth: '320px', padding: '10px', border: '2px solid #e2e8f0', borderRadius: '8px', marginBottom: '12px' }} />
-                <button type="submit" disabled={confirmingPayment} style={{ padding: '10px 20px', background: confirmingPayment ? '#94a3b8' : 'var(--gradient-navy)', color: 'var(--cream)', border: confirmingPayment ? 'none' : '1px solid var(--gold)', borderRadius: '8px', cursor: confirmingPayment ? 'not-allowed' : 'pointer', fontWeight: '600' }}>
-                  {confirmingPayment ? 'Confirming...' : 'Confirm payment'}
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                {cardAvailable && (
+                  <button type="button" onClick={handlePayNow} disabled={paying} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '12px 20px', background: paying ? '#94a3b8' : 'var(--gradient-navy)', color: 'var(--cream)', border: paying ? 'none' : '1px solid var(--gold)', borderRadius: '8px', cursor: paying ? 'not-allowed' : 'pointer', fontWeight: '600', textAlign: 'left' }}>
+                    <CreditCard size={18} />
+                    <span>
+                      {paying ? 'Opening Stripe…' : 'Credit or Debit Card'}
+                      <span style={{ display: 'block', fontSize: '12px', fontWeight: 500, opacity: 0.9 }}>Powered by Stripe Connect</span>
+                    </span>
+                  </button>
+                )}
+                <button type="button" onClick={() => setShowManualPay(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '12px 20px', background: 'white', color: '#1e293b', border: '1px solid var(--gold)', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', textAlign: 'left' }}>
+                  <Building2 size={18} />
+                  <span>
+                    Direct Bank Deposit / Interac
+                    <span style={{ display: 'block', fontSize: '12px', fontWeight: 500, color: '#64748b' }}>Pay manually</span>
+                  </span>
                 </button>
-              </form>
+              </div>
+              {cardAvailable && (
+                <p style={{ fontSize: '13px', color: '#64748b', margin: '12px 0 0' }}>
+                  Card payments are deposited to the company that sent the invoice. Click2Bill does not receive the payment or see your card number. After Stripe confirms the payment, this invoice is marked paid.
+                </p>
+              )}
+              {showManualPay && (
+                <form onSubmit={handleConfirmPayment} style={{ marginTop: '16px' }}>
+                  <p style={{ fontSize: '14px', color: '#64748b', marginBottom: '12px' }}>
+                    Pay by direct deposit or Interac e-Transfer using the instructions on the invoice. Then confirm here and add the transaction reference.
+                  </p>
+                  <input type="text" value={paymentRef} onChange={(e) => setPaymentRef(e.target.value)} placeholder="Transaction reference" style={{ width: '100%', maxWidth: '320px', padding: '10px', border: '2px solid #e2e8f0', borderRadius: '8px', marginBottom: '12px' }} />
+                  <button type="submit" disabled={confirmingPayment} style={{ padding: '10px 20px', background: confirmingPayment ? '#94a3b8' : 'var(--gradient-navy)', color: 'var(--cream)', border: confirmingPayment ? 'none' : '1px solid var(--gold)', borderRadius: '8px', cursor: confirmingPayment ? 'not-allowed' : 'pointer', fontWeight: '600' }}>
+                    {confirmingPayment ? 'Confirming...' : 'Confirm payment'}
+                  </button>
+                </form>
+              )}
             </div>
           )}
 

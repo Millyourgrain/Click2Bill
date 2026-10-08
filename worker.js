@@ -6,7 +6,7 @@
  * Both need Firestore service-account vars
  * (FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY). See DEPLOY-CLOUDFLARE.md.
  */
-import { handleCreateCheckoutSession, handleStripeWebhook } from './workerPayments.js';
+import { handleCardPayAvailable, handleCreateCheckoutSession, handleStripeWebhook } from './workerPayments.js';
 import { handleStripeConnectOnboarding, handleStripeConnectRefresh } from './workerStripeConnect.js';
 import { handleCreateHelcimSession, handleConfirmHelcimPayment, handleHelcimWebhook } from './workerHelcim.js';
 const RESEND_API = 'https://api.resend.com/emails';
@@ -219,6 +219,10 @@ export default {
 
       if (url.pathname === '/api/stripe-connect/refresh' && request.method === 'POST') {
         return handleStripeConnectRefresh(request, env);
+      }
+
+      if (url.pathname === '/api/card-payment-available' && request.method === 'POST') {
+        return handleCardPayAvailable(request, env);
       }
 
       if (url.pathname === '/api/create-checkout-session' && request.method === 'POST') {

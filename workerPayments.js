@@ -316,6 +316,53 @@ function returnUrls(origin, invoiceId, invoice, via) {
   return { successUrl: `${base}?paid=1`, cancelUrl: base };
 }
 
+export async function handleCardPayAvailable(request, env) {
+  if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+  let payload;
+  try {
+    payload = await request.json();
+  } catch {
+    return json({ error: 'Invalid JSON' }, 400);
+  }
+  const invoiceId = payload?.invoiceId;
+  if (!isSafeDocId(invoiceId)) return json({ error: 'Invalid invoice' }, 400);
+  if (!env.STRIPE_SECRET_KEY || !firestoreConfigured(env)) return json({ available: false });
+
+  let invoice;
+  try {
+    invoice = await getFirestoreDoc(env, 'invoices', invoiceId);
+  } catch {
+    return json({ error: 'Could not load invoice' }, 500);
+  }
+  if (!invoice) return json({ error: 'Invoice not found' }, 404);
+  if (!PAYABLE_STATUSES.has(invoice.status) || !isSafeDocId(invoice.userId)) return json({ available: false });
+  if (minorUnits(invoice.total, String(invoice.currency || 'CAD').trim().toUpperCase()) == null) {
+    return json({ available: false });
+  }
+
+  let authz;
+  try {
+    authz = await authorizePayer(request, env, invoice, payload?.portalToken);
+  } catch {
+    return json({ error: 'Could not verify payer' }, 500);
+  }
+  if (!authz.ok) return json({ error: authz.error }, authz.status);
+
+  try {
+    const company = await getFirestoreDoc(env, 'companies', invoice.userId);
+    const stripeAccount = typeof company?.stripeConnectedAccountId === 'string' ? company.stripeConnectedAccountId : '';
+    if (!/^acct_[A-Za-z0-9]+$/.test(stripeAccount)) return json({ available: false });
+    const account = await stripeGet(env, `/accounts/${stripeAccount}`);
+    const ready = account.ok
+      && account.data?.metadata?.click2billCompanyId === invoice.userId
+      && account.data.charges_enabled === true
+      && account.data.payouts_enabled === true;
+    return json({ available: ready });
+  } catch {
+    return json({ available: false });
+  }
+}
+
 export async function handleCreateCheckoutSession(request, env) {
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 

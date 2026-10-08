@@ -7,6 +7,8 @@
 const FIREBASE_LOOKUP_URL = 'https://identitytoolkit.googleapis.com/v1/accounts:lookup';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const STRIPE_API = 'https://api.stripe.com/v1';
+const STRIPE_V2_ACCOUNTS = 'https://api.stripe.com/v2/core/accounts';
+const STRIPE_VERSION = '2026-09-30.endive';
 const DATASTORE_SCOPE = 'https://www.googleapis.com/auth/datastore';
 
 export const PAYABLE_STATUSES = new Set(['sent', 'viewed', 'accepted', 'overdue']);
@@ -289,6 +291,62 @@ async function stripeGet(env, path, stripeAccount) {
   return { ok: res.ok, status: res.status, data };
 }
 
+function metadataMatches(account, companyId) {
+  const meta = account?.metadata?.click2billCompanyId;
+  if (typeof meta !== 'string' || meta.length === 0) return null;
+  return meta === companyId;
+}
+
+async function stripeGetV2Account(env, accountId) {
+  const res = await fetch(`${STRIPE_V2_ACCOUNTS}/${accountId}`, {
+    headers: {
+      Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
+      'Stripe-Version': STRIPE_VERSION,
+      include: 'configuration.merchant,metadata',
+    },
+  });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
+}
+
+/** Company profile already says Pay now is on, or the live Stripe account can take cards. */
+async function connectedAccountCanCharge(env, company, companyId) {
+  const stripeAccount = typeof company?.stripeConnectedAccountId === 'string' ? company.stripeConnectedAccountId : '';
+  if (!/^acct_[A-Za-z0-9]+$/.test(stripeAccount)) return { ok: false, stripeAccount: '' };
+
+  const storedReady = company?.onlineCardPaymentEnabled === true
+    || (company?.stripeChargesEnabled === true && company?.stripePayoutsEnabled === true);
+
+  const v1 = await stripeGet(env, `/accounts/${stripeAccount}`);
+  if (v1.ok && metadataMatches(v1.data, companyId) === false) return { ok: false, stripeAccount };
+  const v1Ready = v1.ok && v1.data?.charges_enabled === true && v1.data?.payouts_enabled === true;
+  if (v1Ready || (storedReady && v1.ok)) return { ok: true, stripeAccount };
+
+  const v2 = await stripeGetV2Account(env, stripeAccount);
+  if (v2.ok && metadataMatches(v2.data, companyId) === false) return { ok: false, stripeAccount };
+  const cardActive = v2.data?.configuration?.merchant?.capabilities?.card_payments?.status === 'active';
+  const payoutsActive = v2.data?.configuration?.merchant?.capabilities?.stripe_balance?.payouts?.status === 'active';
+  if (v2.ok && cardActive) {
+    if (!storedReady) {
+      try {
+        await syncStripeConnectedAccount(env, {
+          id: stripeAccount,
+          metadata: { click2billCompanyId: companyId },
+          charges_enabled: true,
+          payouts_enabled: payoutsActive,
+          details_submitted: true,
+        });
+      } catch (err) {
+        console.error('Could not save Stripe card status', err?.message || err);
+      }
+    }
+    return { ok: true, stripeAccount };
+  }
+
+  if (storedReady) return { ok: true, stripeAccount };
+  return { ok: false, stripeAccount };
+}
+
 export async function syncStripeConnectedAccount(env, account) {
   const companyId = account?.metadata?.click2billCompanyId;
   if (!isSafeDocId(companyId) || !/^acct_[A-Za-z0-9]+$/.test(account?.id || '')) return false;
@@ -350,14 +408,8 @@ export async function handleCardPayAvailable(request, env) {
 
   try {
     const company = await getFirestoreDoc(env, 'companies', invoice.userId);
-    const stripeAccount = typeof company?.stripeConnectedAccountId === 'string' ? company.stripeConnectedAccountId : '';
-    if (!/^acct_[A-Za-z0-9]+$/.test(stripeAccount)) return json({ available: false });
-    const account = await stripeGet(env, `/accounts/${stripeAccount}`);
-    const ready = account.ok
-      && account.data?.metadata?.click2billCompanyId === invoice.userId
-      && account.data.charges_enabled === true
-      && account.data.payouts_enabled === true;
-    return json({ available: ready });
+    const ready = await connectedAccountCanCharge(env, company, invoice.userId);
+    return json({ available: ready.ok });
   } catch {
     return json({ available: false });
   }
@@ -413,17 +465,11 @@ export async function handleCreateCheckoutSession(request, env) {
   } catch {
     return json({ error: 'Could not load company' }, 500);
   }
-  const stripeAccount = typeof company?.stripeConnectedAccountId === 'string' ? company.stripeConnectedAccountId : '';
-  if (!/^acct_[A-Za-z0-9]+$/.test(stripeAccount)) {
+  const ready = await connectedAccountCanCharge(env, company, invoice.userId);
+  if (!ready.ok) {
     return json({ error: 'This company has not connected Stripe.' }, 403);
   }
-  const account = await stripeGet(env, `/accounts/${stripeAccount}`);
-  if (!account.ok || account.data?.metadata?.click2billCompanyId !== invoice.userId) {
-    return json({ error: 'This company has not connected Stripe.' }, 403);
-  }
-  if (account.data.charges_enabled !== true || account.data.payouts_enabled !== true) {
-    return json({ error: 'Stripe is still finishing this company’s account.' }, 403);
-  }
+  const stripeAccount = ready.stripeAccount;
 
   const origin = allowedAppOrigin(request);
   if (!origin) return json({ error: 'Open the invoice in the browser to pay.' }, 400);

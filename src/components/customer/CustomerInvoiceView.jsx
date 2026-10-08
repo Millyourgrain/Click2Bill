@@ -125,7 +125,7 @@ function CustomerInvoiceView({ publicPortal = false }) {
         portalToken: publicPortal ? urlToken : undefined,
       });
       if (cancelled) return;
-      setCardAvailable(result.success ? result.available : invoice.onlineCardPaymentEnabled === true);
+      setCardAvailable((result.success && result.available) || invoice.onlineCardPaymentEnabled === true);
     })();
     return () => { cancelled = true; };
   }, [invoice, invoiceId, publicPortal, urlToken]);
